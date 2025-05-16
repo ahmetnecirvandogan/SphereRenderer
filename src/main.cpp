@@ -19,57 +19,6 @@ vec3 initialVelocity;
 typedef vec4  point4;
 void bindObject(GLuint vPosition);
 
-//For the Background
-void loadTexture(const char* filename) {
-    int width, height, nrChannels;
-    unsigned char* data = stbi_load(filename, &width, &height, &nrChannels, 0);
-    if (data) {
-        glGenTextures(1, &texture);
-        glBindTexture(GL_TEXTURE_2D, texture);
-
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-        if (nrChannels == 3) {
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
-        }
-        else if (nrChannels == 4) {
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
-        }
-        glGenerateMipmap(GL_TEXTURE_2D);
-        stbi_image_free(data);
-    }
-    else {
-        std::cerr << "Failed to load texture" << std::endl;
-        stbi_image_free(data);
-    }
-}
-float backgroundVertices[] = {
-    // positions         // texture coords
-    -1.0f,  1.0f, 0.0f, 0.0f, 1.0f,
-    -1.0f, -1.0f, 0.0f, 0.0f, 0.0f,
-     1.0f,  1.0f, 0.0f, 1.0f, 1.0f,
-     1.0f, -1.0f, 0.0f, 1.0f, 0.0f,
-};
-/*
-void setupBackground() {
-    glGenVertexArrays(1, &backgroundVAO);
-    glGenBuffers(1, &backgroundVBO);
-
-    glBindVertexArray(backgroundVAO);
-    glBindBuffer(GL_ARRAY_BUFFER, backgroundVBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(backgroundVertices), backgroundVertices, GL_STATIC_DRAW);
-
-    // position attribute
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
-    // texture coord attribute
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
-    glEnableVertexAttribArray(1);
-}
-*/
 // About the scene
 int sceneWidth = 1200;
 int sceneHeight = 600;
@@ -106,6 +55,65 @@ bool isRed = true;
 Light lightSource;
 GLuint vPosition;
 
+float backgroundVertices[] = {
+    // positions         // texture coords
+    -1.0f,  1.0f, 0.0f, 0.0f, 1.0f,
+    -1.0f, -1.0f, 0.0f, 0.0f, 0.0f,
+     1.0f,  1.0f, 0.0f, 1.0f, 1.0f,
+     1.0f, -1.0f, 0.0f, 1.0f, 0.0f,
+};
+
+enum { Xaxis = 0, Yaxis = 1, Zaxis = 2, NumAxes = 3 };
+int Axis = Yaxis;
+GLfloat Theta[NumAxes] = { 0.0, 0.0, 0.0 };
+float rotationSpeed = 50.0f;
+
+
+//For the Background
+void loadTexture(const char* filename) {
+    int width, height, nrChannels;
+    unsigned char* data = stbi_load(filename, &width, &height, &nrChannels, 0);
+    if (data) {
+        glGenTextures(1, &texture);
+        glBindTexture(GL_TEXTURE_2D, texture);
+
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+        if (nrChannels == 3) {
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+        }
+        else if (nrChannels == 4) {
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+        }
+        glGenerateMipmap(GL_TEXTURE_2D);
+        stbi_image_free(data);
+    }
+    else {
+        std::cerr << "Failed to load texture" << std::endl;
+        stbi_image_free(data);
+    }
+}
+
+/*
+void setupBackground() {
+    glGenVertexArrays(1, &backgroundVAO);
+    glGenBuffers(1, &backgroundVBO);
+
+    glBindVertexArray(backgroundVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, backgroundVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(backgroundVertices), backgroundVertices, GL_STATIC_DRAW);
+
+    // position attribute
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+    // texture coord attribute
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+}
+*/
 // generation of the sphere
 void generateSphere(float radius) {
     points_sphere.clear();
@@ -294,11 +302,6 @@ void init()
 //
 // display
 //
-enum { Xaxis = 0, Yaxis = 1, Zaxis = 2, NumAxes = 3 };
-int Axis = Yaxis;
-GLfloat Theta[NumAxes] = { 0.0, 0.0, 0.0 };
-float rotationSpeed = 50.0f;
-
 void display(void) {
 
     // 1. Ensure Depth Testing is Enabled at the Start of Each Frame
