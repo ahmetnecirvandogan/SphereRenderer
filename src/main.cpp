@@ -47,10 +47,7 @@ const float gZoomStepFactor = 0.1f;
 
 // Color uniform location
 GLuint colorLocation;
-vec4 colorFirst(1.0, 0.0f, 0.0f, 1.0f);  // Red
-vec4 colorSecond(0.6f, 0.3f, 0.0f, 1.0f);  // Brown
-vec4 currentColor = colorFirst;
-bool isRed = true;
+vec4 currentColor = vec4(1.0, 0.0f, 0.0f, 1.0f); //red
 
 Light lightSource;
 GLuint vPosition;
