@@ -71,8 +71,8 @@ void setupBackground() {
 }
 */
 // About the scene
-const int sceneWidth = 1200;
-const int sceneHeight = 600;
+int sceneWidth = 1200;
+int sceneHeight = 600;
 
 // About the object
 PhysicsObject bouncingObject;
@@ -92,6 +92,9 @@ GLuint sphereVAO, sphereVBO, sphereIBO; // IBO for sphere
 
 // Model-view and projection matrices uniform location
 GLuint  ModelView, Projection;
+mat4 gProjectionMatrix; // Global projection matrix
+float gZoomFactor = 1.0f; // Global zoom factor
+const float gZoomStepFactor = 0.1f;
 
 // Color uniform location
 GLuint colorLocation;
@@ -189,6 +192,32 @@ void setupSphereBuffers(GLuint vPositionLoc, GLuint vColorLoc, GLuint vNormalLoc
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
 }
+
+// Helper function to update the projection matrix
+void updateProjection() {
+    if (sceneHeight == 0) sceneHeight = 1; // Prevent division by zero
+    float aspect = (float)sceneWidth / (float)sceneHeight;
+    float baseViewHeight = 2.0f; // Base height when zoomFactor is 1.0
+
+    // When gZoomFactor < 1.0 (zoom in), currentViewHeight is smaller -> smaller ortho box -> objects larger
+    // When gZoomFactor > 1.0 (zoom out), currentViewHeight is larger -> larger ortho box -> objects smaller
+    float currentViewHeight = baseViewHeight * gZoomFactor;
+    float currentViewWidth = currentViewHeight * aspect;
+
+    float top = currentViewHeight / 2.0f;
+    float bottom = -top;
+    float right = currentViewWidth / 2.0f;
+    float left = -right;
+
+    gProjectionMatrix = Ortho(left, right, bottom, top, -1.0, 1.0);
+    
+    // Ensure the correct shader program is active before updating its uniforms.
+    // This is important if you switch between shader programs elsewhere.
+    glUseProgram(program);
+    glUniformMatrix4fv(Projection, 1, GL_TRUE, gProjectionMatrix);
+}
+
+
 //---------------------------------------------------------------------
 //
 // init
@@ -225,10 +254,11 @@ void init()
     // Retrieve transformation uniform variable locations
     ModelView = glGetUniformLocation(program, "ModelView");
     Projection = glGetUniformLocation(program, "Projection");
+    updateProjection();
 
     // Set projection matrix
     mat4  projection;
-
+    
 
     float aspect = (float)sceneWidth / (float)sceneHeight;
     float viewHeight = 2.0f;
@@ -348,26 +378,23 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
         //Define at least two options for material properties: either plastic or metallic (use the key M to toggle).
         break;
     }
-    case GLFW_KEY_Z:
-    {
-        //The user should be able to zoom in and out (use the keys Z and W).
-        break;
-    }
+    case GLFW_KEY_Z: // Zoom In
+        {
+            gZoomFactor *= (1.0f - gZoomStepFactor); // Decrease zoom factor (e.g., 0.9)
+            if (gZoomFactor < 0.05f) gZoomFactor = 0.05f; // Set a minimum zoom limit
+            updateProjection();
+            break;
+        }
     
-    case GLFW_KEY_W:
-    {
-        //The user should be able to zoom in and out (use the keys Z and W).
-        break;
-    }
-
-    case GLFW_KEY_C:
-        isRed = !isRed;
-        currentColor = isRed ? colorFirst : colorSecond;
-        glUseProgram(program);
-        glUniform4fv(colorLocation, 1, currentColor);
-        break;
+    case GLFW_KEY_W:// Zoom Out
+        {
+            gZoomFactor *= (1.0f + gZoomStepFactor); // Increase zoom factor (e.g., 1.1)
+            if (gZoomFactor > 20.0f) gZoomFactor = 20.0f; // Set a maximum zoom limit
+            updateProjection();
+            break;
+        }
     case GLFW_KEY_H:
-        std::cout << "i -- initialize the pose (top left corner of the window)\nc-- switch between two colors(of your choice), which is used to draw lines or triangles.\nh -- help; print explanation of your input control(simply to the command line)\nq -- quit(exit) the program" << std::endl;
+        std::cout << "CONTROL INSTRUCTIONS\n\nH -- Help\nI -- Initialize the pose\nO -- Change light mode (ambient - diffuse - specular)\nS -- Change shading mode (Gouraud and Phong shading)\nL -- Initialize the light position\nM -- Change material mode\nZ -- Zoom in\nW -- Zoom out\nMouse left click -- Change the drawing mode (Fill & Line)\nQ -- Quit(exit)\n" << std::endl;
         break;
     }
         
@@ -492,7 +519,7 @@ int main()
         Theta[Axis] += rotationSpeed * deltaTime;
         if (Theta[Axis] > 360.0f) Theta[Axis] -= 360.0f;
         else if (Theta[Axis] < 0.0f) Theta[Axis] += 360.0f;
- 
+  
         display();
         glfwSwapBuffers(window);
     }
