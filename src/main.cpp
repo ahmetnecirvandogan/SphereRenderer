@@ -18,7 +18,6 @@ double deltaTime = 1.0 / frameRate;
 vec3 initialVelocity;
 typedef vec4  point4;
 void bindObject(GLuint vPosition);
-
 // About the scene
 int sceneWidth = 1200;
 int sceneHeight = 600;
@@ -37,6 +36,7 @@ const int latitudeBands = 50; //Divides the sphere along the vertical axis
 const int longitudeBands = 50; //Divides the sphere along the horizontal axis
 std::vector<point4> points_sphere;
 std::vector<GLuint> indices_sphere; // Add indices vector
+std::vector<vec2> texCoords_sphere;
 GLuint sphereVAO, sphereVBO, sphereIBO; // IBO for sphere
 
 // Model-view and projection matrices uniform location
@@ -47,11 +47,90 @@ const float gZoomStepFactor = 0.1f;
 
 // Color uniform location
 GLuint colorLocation;
-vec4 currentColor = vec4(1.0, 0.0f, 0.0f, 1.0f); //red
+vec4 colorFirst(1.0, 0.0f, 0.0f, 1.0f);  // Red
+vec4 colorSecond(0.6f, 0.3f, 0.0f, 1.0f);  // Brown
+vec4 currentColor = colorFirst;
+bool isRed = true;
 
 Light lightSource;
 GLuint vPosition;
 
+struct Image {
+    unsigned char* data;
+    int width;
+    int height;
+    int max_val;
+};
+
+Image loadPPM(const char* filename) {
+    FILE* fp;
+    char buff[100];
+    Image img;
+    int c;
+
+    fp = fopen(filename, "r");
+    if (!fp) {
+        fprintf(stderr, "Unable to open file %s\n", filename);
+        exit(1);
+    }
+
+    // Read magic number
+    fscanf(fp, "%s", buff);
+    if (buff[0] != 'P' || buff[1] != '3') {
+        fprintf(stderr, "Invalid PPM file format (must be P3)\n");
+        exit(1);
+    }
+
+    // Skip comments
+    c = getc(fp);
+    while (c == '#') {
+        while (getc(fp) != '\n');
+        c = getc(fp);
+    }
+    ungetc(c, fp);
+
+    // Read dimensions and max value
+    fscanf(fp, "%d %d", &img.width, &img.height);
+    fscanf(fp, "%d", &img.max_val);
+
+    // Allocate memory
+    img.data = (unsigned char*)malloc(img.width * img.height * 3);
+    if (!img.data) {
+        fprintf(stderr, "Unable to allocate memory for image data\n");
+        exit(1);
+    }
+
+    // Read pixel data
+    int pixel_index = 0;
+    for (int i = 0; i < img.width * img.height; i++) {
+        int r, g, b;
+        fscanf(fp, "%d %d %d", &r, &g, &b);
+        img.data[pixel_index++] = (unsigned char)r;
+        img.data[pixel_index++] = (unsigned char)g;
+        img.data[pixel_index++] = (unsigned char)b;
+    }
+
+    fclose(fp);
+    return img;
+}
+//For the Background
+void loadTexture(const char* filename) {
+    Image img = loadPPM(filename); // Use your custom loader
+
+    glGenTextures(1, &texture);
+    glBindTexture(GL_TEXTURE_2D, texture);
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    // Use GL_RGB for PPM P3 format
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, img.width, img.height, 0, GL_RGB, GL_UNSIGNED_BYTE, img.data);
+    glGenerateMipmap(GL_TEXTURE_2D);
+
+    free(img.data); // Free the image data after uploading to the GPU
+}
 float backgroundVertices[] = {
     // positions         // texture coords
     -1.0f,  1.0f, 0.0f, 0.0f, 1.0f,
@@ -59,41 +138,6 @@ float backgroundVertices[] = {
      1.0f,  1.0f, 0.0f, 1.0f, 1.0f,
      1.0f, -1.0f, 0.0f, 1.0f, 0.0f,
 };
-
-enum { Xaxis = 0, Yaxis = 1, Zaxis = 2, NumAxes = 3 };
-int Axis = Yaxis;
-GLfloat Theta[NumAxes] = { 0.0, 0.0, 0.0 };
-float rotationSpeed = 50.0f;
-
-
-//For the Background
-void loadTexture(const char* filename) {
-    int width, height, nrChannels;
-    unsigned char* data = stbi_load(filename, &width, &height, &nrChannels, 0);
-    if (data) {
-        glGenTextures(1, &texture);
-        glBindTexture(GL_TEXTURE_2D, texture);
-
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-        if (nrChannels == 3) {
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
-        }
-        else if (nrChannels == 4) {
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
-        }
-        glGenerateMipmap(GL_TEXTURE_2D);
-        stbi_image_free(data);
-    }
-    else {
-        std::cerr << "Failed to load texture" << std::endl;
-        stbi_image_free(data);
-    }
-}
-
 /*
 void setupBackground() {
     glGenVertexArrays(1, &backgroundVAO);
@@ -111,12 +155,15 @@ void setupBackground() {
     glEnableVertexAttribArray(1);
 }
 */
+
+
 // generation of the sphere
 void generateSphere(float radius) {
     points_sphere.clear();
     indices_sphere.clear();
-    normals_sphere.clear(); // Clear normals
-    colors_sphere.clear();  // Clear colors
+    normals_sphere.clear();
+    colors_sphere.clear();
+    std::vector<vec2> texCoords_sphere; // Add texture coordinates vector
 
     for (int lat = 0; lat <= latitudeBands; lat++) {
         float theta = lat * M_PI / latitudeBands;
@@ -135,12 +182,14 @@ void generateSphere(float radius) {
             point4 pos = point4(radius * x, radius * y, radius * z, 1.0);
             points_sphere.push_back(pos);
 
-            // Calculate and store normal (normalize the position for a unit sphere, then scale for your sphere)
-            vec3 normal = normalize(vec3(x, y, z)); // Assuming sphere is centered at origin
+            vec3 normal = normalize(vec3(x, y, z));
             normals_sphere.push_back(normal);
 
-            // Assign a color (e.g., red for all vertices)
-            colors_sphere.push_back(vec4(1.0f, 0.0f, 0.0f, 1.0f)); // Example color
+            colors_sphere.push_back(vec4(1.0f, 0.0f, 0.0f, 1.0f));
+
+            // Generate texture coordinates
+            vec2 texCoord = vec2(1.0f - ((float)lon / longitudeBands), (float)lat / latitudeBands); // Adjusted mapping
+            texCoords_sphere.push_back(texCoord);
         }
     }
 
@@ -161,19 +210,19 @@ void generateSphere(float radius) {
     }
 }
 
-void setupSphereBuffers(GLuint vPositionLoc, GLuint vColorLoc, GLuint vNormalLoc) {
+void setupSphereBuffers(GLuint vPositionLoc, GLuint vColorLoc, GLuint vNormalLoc, GLuint vTexCoordLoc) {
     glGenVertexArrays(1, &sphereVAO);
     glBindVertexArray(sphereVAO);
 
     // Position Buffer
-    glGenBuffers(1, &sphereVBO); // Reuse sphereVBO name, or use separate names
+    glGenBuffers(1, &sphereVBO);
     glBindBuffer(GL_ARRAY_BUFFER, sphereVBO);
     glBufferData(GL_ARRAY_BUFFER, points_sphere.size() * sizeof(point4), points_sphere.data(), GL_STATIC_DRAW);
     glVertexAttribPointer(vPositionLoc, 4, GL_FLOAT, GL_FALSE, 0, (void*)0);
     glEnableVertexAttribArray(vPositionLoc);
 
     // Color Buffer
-    GLuint sphereColorVBO; // Dedicated VBO for color
+    GLuint sphereColorVBO;
     glGenBuffers(1, &sphereColorVBO);
     glBindBuffer(GL_ARRAY_BUFFER, sphereColorVBO);
     glBufferData(GL_ARRAY_BUFFER, colors_sphere.size() * sizeof(vec4), colors_sphere.data(), GL_STATIC_DRAW);
@@ -181,12 +230,20 @@ void setupSphereBuffers(GLuint vPositionLoc, GLuint vColorLoc, GLuint vNormalLoc
     glEnableVertexAttribArray(vColorLoc);
 
     // Normal Buffer
-    GLuint sphereNormalVBO; // Dedicated VBO for normals
+    GLuint sphereNormalVBO;
     glGenBuffers(1, &sphereNormalVBO);
     glBindBuffer(GL_ARRAY_BUFFER, sphereNormalVBO);
     glBufferData(GL_ARRAY_BUFFER, normals_sphere.size() * sizeof(vec3), normals_sphere.data(), GL_STATIC_DRAW);
-    glVertexAttribPointer(vNormalLoc, 3, GL_FLOAT, GL_FALSE, 0, (void*)0); // Size 3 for vec3
+    glVertexAttribPointer(vNormalLoc, 3, GL_FLOAT, GL_FALSE, 0, (void*)0);
     glEnableVertexAttribArray(vNormalLoc);
+
+    // Texture Coordinate Buffer
+    GLuint sphereTexCoordVBO; // Dedicated VBO for texture coordinates
+    glGenBuffers(1, &sphereTexCoordVBO);
+    glBindBuffer(GL_ARRAY_BUFFER, sphereTexCoordVBO);
+    glBufferData(GL_ARRAY_BUFFER, texCoords_sphere.size() * sizeof(vec2), texCoords_sphere.data(), GL_STATIC_DRAW); // Use vec2 for tex coords
+    glVertexAttribPointer(vTexCoordLoc, 2, GL_FLOAT, GL_FALSE, 0, (void*)0); // Size 2 for vec2
+    glEnableVertexAttribArray(vTexCoordLoc);
 
     // Index Buffer (IBO)
     glGenBuffers(1, &sphereIBO);
@@ -250,7 +307,11 @@ void init()
 
     // bind the object to the shader
     vPosition = glGetAttribLocation(program, "vPosition");
-    bindObject(vPosition);  // pass it in
+    
+    bindObject(vPosition); // This will call generateSphere and setupSphereBuffers
+ 
+    // Load your PPM texture
+    loadTexture("basketball.ppm");
 
     // Retrieve color uniform variable locations
     colorLocation = glGetUniformLocation(program, "color");
@@ -264,7 +325,7 @@ void init()
     // Set projection matrix
     mat4  projection;
     
-
+ 
     float aspect = (float)sceneWidth / (float)sceneHeight;
     float viewHeight = 2.0f;
     float viewWidth = viewHeight * aspect;
@@ -299,6 +360,11 @@ void init()
 //
 // display
 //
+enum { Xaxis = 0, Yaxis = 1, Zaxis = 2, NumAxes = 3 };
+int Axis = Yaxis;
+GLfloat Theta[NumAxes] = { 0.0, 0.0, 0.0 };
+float rotationSpeed = 50.0f;
+
 void display(void) {
 
     // 1. Ensure Depth Testing is Enabled at the Start of Each Frame
@@ -324,23 +390,28 @@ void display(void) {
     // 5. Render the Physics Object (Sphere)
     glPolygonMode(GL_FRONT_AND_BACK, drawingMode);
     glUseProgram(program);
-    bouncingObject.update(deltaTime);
+    
+    // Bind texture
+    glActiveTexture(GL_TEXTURE0); // Use texture unit 0
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glUniform1i(glGetUniformLocation(program, "textureSampler"), 0); // Set texture uniform to unit 0
 
+    bouncingObject.update(deltaTime);
+ 
     mat4 model_view = Translate(bouncingObject.position.x, bouncingObject.position.y, 0.1f) *
         RotateY(Theta[Yaxis]) *
         RotateZ(Theta[Zaxis]);
-
+ 
     float sphereScale = 0.48f;
     mat4 sphere_model_view = model_view * Scale(sphereScale, sphereScale, sphereScale);
     glUniformMatrix4fv(ModelView, 1, GL_TRUE, sphere_model_view);
     glBindVertexArray(sphereVAO);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, sphereIBO);
     glDrawElements(GL_TRIANGLES, indices_sphere.size(), GL_UNSIGNED_INT, 0);
-
-
+     
     glFinish();
 }
-
+ 
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
     if (action != GLFW_PRESS) return;
@@ -461,11 +532,12 @@ void createAndBindBuffer(const void* data, size_t dataSize, GLuint& vao, GLuint&
     glBindVertexArray(0);
 }
 
-void bindObject(GLuint vPositionLoc) { // Rename parameter for clarity
-     generateSphere(0.5f);
-     GLuint vColorLoc = glGetAttribLocation(program, "vColor"); // Get color location
-     GLuint vNormalLoc = glGetAttribLocation(program, "vNormal"); // Get normal location
-     setupSphereBuffers(vPositionLoc, vColorLoc, vNormalLoc); // Call the new setup function
+void bindObject(GLuint vPositionLoc) {
+    generateSphere(0.5f);
+    GLuint vColorLoc = glGetAttribLocation(program, "vColor");
+    GLuint vNormalLoc = glGetAttribLocation(program, "vNormal");
+    GLuint vTexCoordLoc = glGetAttribLocation(program, "vTexCoord"); // Get texture coordinate location
+    setupSphereBuffers(vPositionLoc, vColorLoc, vNormalLoc, vTexCoordLoc); // Pass texture coordinate location
 }
 
 
@@ -511,7 +583,7 @@ int main()
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
     
-  
+     
         double currentTime = glfwGetTime();
         double deltaTime = currentTime - previousTime;
         previousTime = currentTime;
@@ -519,7 +591,7 @@ int main()
         Theta[Axis] += rotationSpeed * deltaTime;
         if (Theta[Axis] > 360.0f) Theta[Axis] -= 360.0f;
         else if (Theta[Axis] < 0.0f) Theta[Axis] += 360.0f;
-  
+       
         display();
         glfwSwapBuffers(window);
     }
