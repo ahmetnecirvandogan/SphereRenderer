@@ -1,4 +1,4 @@
-# 🌐 Sphere Renderer - COMP 410/510 Programming Assignment #3
+# 🌐 Sphere Renderer
 
 **Explore the world through perfect spheres! This OpenGL application brings shading and texture mapping to life, building upon the foundations of Homework 1.**
 
