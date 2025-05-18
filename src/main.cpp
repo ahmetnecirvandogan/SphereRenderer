@@ -254,7 +254,11 @@ void init()
 
     // 3. Setup vertex data and buffers for the sphere
     GLuint vPositionLoc = glGetAttribLocation(program, "vPosition");
-    bindObject(vPositionLoc); // Pass the VAO location
+    GLuint vColorLoc = glGetAttribLocation(program, "vColor");
+    GLuint vNormalLoc = glGetAttribLocation(program, "vNormal");
+    
+    generateSphere(sphereGeneratedRadius);
+    setupSphereBuffers(vPositionLoc, vColorLoc, vNormalLoc);
 
     // 4. Retrieve transformation uniform variable locations
     ModelView = glGetUniformLocation(program, "ModelView");
@@ -498,13 +502,6 @@ void createAndBindBuffer(const void* data, size_t dataSize, GLuint& vao, GLuint&
 
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
-}
-
-void bindObject(GLuint vPositionLoc) { // Rename parameter for clarity
-     generateSphere(0.5f);
-     GLuint vColorLoc = glGetAttribLocation(program, "vColor"); // Get color location
-     GLuint vNormalLoc = glGetAttribLocation(program, "vNormal"); // Get normal location
-     setupSphereBuffers(vPositionLoc, vColorLoc, vNormalLoc); // Call the new setup function
 }
 
 
