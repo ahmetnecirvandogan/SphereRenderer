@@ -8,7 +8,13 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 #include "light.h"
-
+#include <cmath>
+#ifndef M_PI
+    #define M_PI 3.14159265358979323846
+#endif
+inline float degreesToRadians(float degrees) {
+    return degrees * (float(M_PI) / 180.0f);
+}
 
 GLuint program;
 GLuint texture; // Texture ID
@@ -41,6 +47,14 @@ GLuint sphereVAO, sphereVBO, sphereIBO; // IBO for sphere
 
 // Model-view and projection matrices uniform location
 GLuint  ModelView, Projection;
+// New Camera Parameters
+vec3 gCameraEye = vec3(0.0f, 0.5f, 3.0f); // Initial camera position (looking slightly down and from a distance)
+vec3 gCameraAt = vec3(0.0f, 0.0f, 0.0f);  // Point the camera is looking at (center of the scene)
+vec3 gCameraUp = vec3(0.0f, 1.0f, 0.0f);  // Up direction for the camera
+GLfloat gInitialFOVy = 45.0f; // Initial Field of View in Y direction (in degrees)
+GLfloat gZNear = 0.1f;        // Near clipping plane
+GLfloat gZFar = 100.0f;       // Far clipping plane
+
 mat4 gProjectionMatrix; // Global projection matrix
 float gZoomFactor = 1.0f; // Global zoom factor
 const float gZoomStepFactor = 0.1f;
@@ -65,6 +79,31 @@ int Axis = Yaxis;
 GLfloat Theta[NumAxes] = { 0.0, 0.0, 0.0 };
 float rotationSpeed = 50.0f;
 
+// Helper function to update the projection matrix
+void updateProjection() {
+    if (sceneHeight == 0) sceneHeight = 1; // Prevent division by zero
+    float aspect = (float)sceneWidth / (float)sceneHeight;
+
+    // Adjust FOV with gZoomFactor for zooming
+    // Smaller gZoomFactor (zoom in) -> narrower FOV
+    // Larger gZoomFactor (zoom out) -> wider FOV
+    GLfloat current_fovy = gInitialFOVy * gZoomFactor;
+
+    // Clamp FOV to reasonable limits
+    if (current_fovy < 1.0f) current_fovy = 1.0f;   // Prevent it from becoming too narrow
+    if (current_fovy > 120.0f) current_fovy = 120.0f; // Prevent it from becoming too wide
+
+    // Assuming Angel.h provides a Perspective function:
+    // Perspective(fovY, aspectRatio, nearPlane, farPlane)
+    gProjectionMatrix = Perspective(current_fovy, aspect, gZNear, gZFar);
+
+    // Ensure the correct shader program is active
+    glUseProgram(program);
+    // Send the projection matrix to the shader
+    // Your original code used GL_TRUE for transpose, so we'll keep that.
+    // This might depend on how matrices are stored in Angel.h (often GL_FALSE is used with column-major matrices).
+    glUniformMatrix4fv(Projection, 1, GL_TRUE, gProjectionMatrix);
+}
 
 //For the Background
 void loadTexture(const char* filename) {
@@ -198,101 +237,98 @@ void setupSphereBuffers(GLuint vPositionLoc, GLuint vColorLoc, GLuint vNormalLoc
     glBindVertexArray(0);
 }
 
-// Helper function to update the projection matrix
-void updateProjection() {
-    if (sceneHeight == 0) sceneHeight = 1; // Prevent division by zero
-    float aspect = (float)sceneWidth / (float)sceneHeight;
-    float baseViewHeight = 2.0f; // Base height when zoomFactor is 1.0
-
-    // When gZoomFactor < 1.0 (zoom in), currentViewHeight is smaller -> smaller ortho box -> objects larger
-    // When gZoomFactor > 1.0 (zoom out), currentViewHeight is larger -> larger ortho box -> objects smaller
-    float currentViewHeight = baseViewHeight * gZoomFactor;
-    float currentViewWidth = currentViewHeight * aspect;
-
-    float top = currentViewHeight / 2.0f;
-    float bottom = -top;
-    float right = currentViewWidth / 2.0f;
-    float left = -right;
-
-    gProjectionMatrix = Ortho(left, right, bottom, top, -1.0, 1.0);
-    
-    // Ensure the correct shader program is active before updating its uniforms.
-    // This is important if you switch between shader programs elsewhere.
-    glUseProgram(program);
-    glUniformMatrix4fv(Projection, 1, GL_TRUE, gProjectionMatrix);
-}
-
 
 //---------------------------------------------------------------------
 //
 // init
 //
 
+// Ensure these global variables are defined at the top of main.cpp or in a shared header
+// extern vec3 gCameraEye; // = vec3(0.0f, 0.5f, 3.0f);
+// extern vec3 gCameraAt;  // = vec3(0.0f, 0.0f, 0.0f);
+// extern vec3 gCameraUp;  // = vec3(0.0f, 1.0f, 0.0f);
+// extern GLfloat gInitialFOVy; // = 45.0f;
+// extern GLfloat gZNear;       // = 0.1f;
+// extern GLfloat gZFar;        // = 100.0f;
+// extern float gZoomFactor;    // = 1.0f;
+// extern int sceneWidth, sceneHeight; // Initialized e.g., 1200, 600
+
+// Global for initial velocity, if you set it once and reuse
+// vec3 initialVelocity = vec3(0.5f, 0.0f, 0.0f); // Defined globally or initialized here
+
 void init()
 {
-    //Background initialization
-    //loadTexture("toy-story-background.jpg");
-    //setupBackground();
+    // 1. Initialize Physics Object (needs computeInitialPosition)
+    //    computeInitialPosition uses gCameraEye, gCameraAt, gInitialFOVy, gZoomFactor, sceneWidth, sceneHeight
+    //    Ensure these globals have their initial values set before this call.
+    float sphereGeneratedRadius = 0.5f; // Radius used in generateSphere
+    vec3 initPos = computeInitialPosition(sphereGeneratedRadius);
 
-    float objectSize = 0.5f;
-    vec3 initPos = computeInitialPosition(objectSize);
-    vec3 initVel(0.5f, 0.0f, 0.0f); // Set initial x-velocity here
-    initialVelocity = initVel; // Store the initial velocity
-    vec3 initAcc(0.0f);
-    float initMass = 1.0f;
-    bouncingObject = PhysicsObject(initPos, initVel, initAcc, initMass);
-    bouncingObject.position = initPos;
+    // Initialize initialVelocity if not done globally
+    initialVelocity = vec3(0.5f, 0.0f, 0.0f); // Example initial X-velocity
 
-    // Load shaders and use the resulting shader program
+    bouncingObject = PhysicsObject(initPos, initialVelocity, vec3(0.0f), 1.0f); // Mass = 1.0f
+
+    // 2. Load shaders and use the resulting shader program
     program = InitShader("vshader.glsl", "fshader.glsl");
     glUseProgram(program);
-    glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 
-    // bind the object to the shader
-    vPosition = glGetAttribLocation(program, "vPosition");
-    bindObject(vPosition);  // pass it in
+    // 3. Setup vertex data and buffers for the sphere
+    //    bindObject internally calls generateSphere and setupSphereBuffers
+    //    vPosition attribute location is needed by bindObject/setupSphereBuffers
+    GLuint vPositionLoc = glGetAttribLocation(program, "vPosition");
+    bindObject(vPositionLoc); // Pass the VAO location
 
-    // Retrieve color uniform variable locations
-    colorLocation = glGetUniformLocation(program, "color");
-    glUniform4fv(colorLocation, 1, currentColor);
-
-    // Retrieve transformation uniform variable locations
+    // 4. Retrieve transformation uniform variable locations
     ModelView = glGetUniformLocation(program, "ModelView");
     Projection = glGetUniformLocation(program, "Projection");
-    updateProjection();
 
-    // Set projection matrix
-    mat4  projection;
-    
+    // 5. Set up and send the initial Projection matrix
+    //    updateProjection() uses gInitialFOVy, gZoomFactor, sceneWidth, sceneHeight, gZNear, gZFar
+    updateProjection(); // This now sets the perspective projection
 
-    float aspect = (float)sceneWidth / (float)sceneHeight;
-    float viewHeight = 2.0f;
-    float viewWidth = viewHeight * aspect;
-    float top = viewHeight / 2.0f;
-    float bottom = -top;
-    float right = viewWidth / 2.0f;
-    float left = -right;
-    projection = Ortho(left, right, bottom, top, -1.0, 1.0);
-    glUniformMatrix4fv(Projection, 1, GL_TRUE, projection);
+    // NOTE: The old Ortho projection setup block that was here previously
+    // should have been REMOVED or COMMENTED OUT.
 
-    // Lighting uniforms
+    // 6. Set up Lighting uniforms (ensure your Light class or direct glUniform calls are correct)
+    // Example: using direct glUniform calls as in your original code.
+    // If you have a Light class instance (e.g., lightSource), you might use its methods.
     vec3 lightColor(1.0f, 1.0f, 1.0f);
     float ambientStrength = 0.3f;
-    vec3 lightDirection(1.0f, 1.0f, 0.0f);
+    vec3 lightDirection(1.0f, 1.0f, 0.0f); // Example direction
     float diffuseIntensity = 0.7f;
-    
+
+    // Uniform locations for the DirectionalLight struct in the shader
     GLint ambientColorLoc = glGetUniformLocation(program, "directionalLight.color");
     GLint ambientIntensityLoc = glGetUniformLocation(program, "directionalLight.ambientIntensity");
     GLint lightDirectionLoc = glGetUniformLocation(program, "directionalLight.direction");
     GLint diffuseIntensityLoc = glGetUniformLocation(program, "directionalLight.diffuseIntensity");
 
-    glUniform3fv(ambientColorLoc, 1, &lightColor[0]);
-    glUniform1f(ambientIntensityLoc, ambientStrength);
-    glUniform3fv(lightDirectionLoc, 1, &lightDirection[0]);
-    glUniform1f(diffuseIntensityLoc, diffuseIntensity);
+    // Check if locations are valid (not -1) before using them
+    if (ambientColorLoc != -1) glUniform3fv(ambientColorLoc, 1, &lightColor[0]);
+    if (ambientIntensityLoc != -1) glUniform1f(ambientIntensityLoc, ambientStrength);
+    if (lightDirectionLoc != -1) glUniform3fv(lightDirectionLoc, 1, &lightDirection[0]);
+    if (diffuseIntensityLoc != -1) glUniform1f(diffuseIntensityLoc, diffuseIntensity);
 
+    // If your assignment requires specular, add those uniforms too:
+    // GLint specularIntensityLoc = glGetUniformLocation(program, "directionalLight.specularIntensity");
+    // if (specularIntensityLoc != -1) glUniform1f(specularIntensityLoc, some_specular_intensity_value);
+
+    // Material uniforms (if you're starting to implement them)
+    // GLint matAmbientLoc = glGetUniformLocation(program, "material.ambient");
+    // ... etc.
+
+    // 7. Set OpenGL states
     glEnable(GL_DEPTH_TEST);
-    glClearColor(0.0, 0.0, 0.0, 1.0);
+    // glEnable(GL_CULL_FACE); // If required by assignment (Section 3: Shading)
+    // glCullFace(GL_BACK);    // "
+    // glFrontFace(GL_CCW);   // " (usually default)
+
+    glClearColor(0.0, 0.0, 0.0, 1.0); // Set background color (black)
+
+    // Commented out background texture loading as per assignment focusing on PPM for sphere
+    // loadTexture("toy-story-background.jpg"); // If you were using this for a background quad
+    // setupBackground();
 }
 
 //---------------------------------------------------------------------
@@ -325,18 +361,36 @@ void display(void) {
     glPolygonMode(GL_FRONT_AND_BACK, drawingMode);
     glUseProgram(program);
     bouncingObject.update(deltaTime);
+    
+    // Create View Matrix (Camera)
+    // Assuming Angel.h provides a LookAt function:
+    // LookAt(eyePosition, lookAtPosition, upVector)
+    mat4 view_matrix = LookAt(gCameraEye, gCameraAt, gCameraUp);
 
     mat4 model_view = Translate(bouncingObject.position.x, bouncingObject.position.y, 0.1f) *
         RotateY(Theta[Yaxis]) *
         RotateZ(Theta[Zaxis]);
 
-    float sphereScale = 0.48f;
-    mat4 sphere_model_view = model_view * Scale(sphereScale, sphereScale, sphereScale);
-    glUniformMatrix4fv(ModelView, 1, GL_TRUE, sphere_model_view);
+    float sphereScale = 0.48f; // Scale of the sphere
+    mat4 model_matrix = model_view * Scale(sphereScale, sphereScale, sphereScale);
+
+    // Calculate the final ModelView matrix (View * Model)
+    mat4 final_model_view_matrix = view_matrix * model_matrix;
+
+    // Send the ModelView matrix to the shader
+    // Your original code used GL_TRUE for transpose.
+    glUniformMatrix4fv(ModelView, 1, GL_TRUE, final_model_view_matrix);
+
+    // The Projection matrix is already set and sent by updateProjection().
+    // No need to send it again here unless it changes per-frame independently
+    // of window resize or zoom operations.
+
+    // Draw the sphere
     glBindVertexArray(sphereVAO);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, sphereIBO);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, sphereIBO); // Good practice to rebind IBO
     glDrawElements(GL_TRIANGLES, indices_sphere.size(), GL_UNSIGNED_INT, 0);
 
+    // glBindVertexArray(0); // Unbind VAO (good practice)
 
     glFinish();
 }
@@ -350,10 +404,11 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
         break;
     case GLFW_KEY_I:
     {
-        float objectSize = 0.48f;
-        vec3 pos = computeInitialPosition(objectSize);
+        float sphereGeneratedRadius = 0.5f; // Consistent with generateSphere
+        vec3 pos = computeInitialPosition(sphereGeneratedRadius);
         bouncingObject.position = pos;
-        bouncingObject.velocity = initialVelocity; // Set velocity to the stored initial velocity
+        bouncingObject.velocity = initialVelocity; // Reset to stored initial velocity
+        bouncingObject.acceleration = vec3(0.0f, 0.0f, 0.0f); // Reset acceleration
         break;
     }
     case GLFW_KEY_O:
@@ -416,24 +471,65 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 {
-    glViewport(0, 0, width, height);
+    glViewport(0, 0, width, height); // Set the viewport
+    sceneWidth = width;  // Update the global width variable
+    sceneHeight = height; // Update the global height variable
+    if (height > 0) { // Prevent division by zero for aspect ratio if height is 0
+         updateProjection(); // Update the projection matrix for the new aspect ratio
+    }
 }
-
-
 // Simulate the movement again
-vec3 computeInitialPosition(float objectSize)
-{
-    float aspect = (float)sceneWidth / (float)sceneHeight;
-    float viewHeight = 2.0f;
-    float viewWidth = viewHeight * aspect;
-    float top = viewHeight / 2.0f;
-    float bottom = -top;
-    float right = viewWidth / 2.0f;
-    float left = -right;
+vec3 computeInitialPosition(float objectRadiusUnscaled) {
+    // The sphere is generated with radius objectRadiusUnscaled (e.g., 0.5f).
+    // In the display function, it's scaled by sphereScale (e.g., 0.48f).
+    float actualVisualRadius = objectRadiusUnscaled * 0.48f; // This is the apparent radius after scaling in display()
 
-    float halfObjectSize = objectSize / 2.0f;
+    // Calculate the world coordinates for "top-left" at the Z=0 plane.
+    // This is the plane where the object will be initially placed.
 
-    vec3 initialPosition = vec3(left + halfObjectSize, top - halfObjectSize, 0.0f);
+    // Distance from the camera's eye to the object's Z-plane (Z=0).
+    // Assumes gCameraEye.z > 0 and object is at Z=0.
+    float distance_to_object_plane = gCameraEye.z;
+
+    // A basic check if the camera is too close or behind the object plane.
+    if (distance_to_object_plane <= actualVisualRadius) { // Check against radius for better safety
+        std::cerr << "Warning: Camera might be too close to or behind the object plane "
+                  << "for accurate top-left initial position calculation. "
+                  << "Using a default fallback position." << std::endl;
+        // Fallback to a somewhat top-left-ish default if calculation is problematic
+        return vec3(-0.75f, 0.75f, 0.0f);
+    }
+
+    // Get the current Field of View (FOV) based on initial FOV and zoom factor.
+    GLfloat current_fovy_degrees = gInitialFOVy * gZoomFactor;
+    // Clamp FOV to avoid extreme values, consistent with updateProjection()
+    if (current_fovy_degrees < 1.0f) current_fovy_degrees = 1.0f;
+    if (current_fovy_degrees > 120.0f) current_fovy_degrees = 120.0f;
+
+    // Get the current aspect ratio.
+    float aspect = 1.0f; // Default aspect ratio
+    if (sceneHeight > 0) {
+        aspect = (float)sceneWidth / (float)sceneHeight;
+    }
+
+    // Calculate the height and width of the view frustum at the object's Z-plane.
+    // The gCameraAt.y and gCameraAt.x will be the center of this view at that distance.
+    float half_fovy_rad = degreesToRadians(current_fovy_degrees / 2.0f); // THIS LINE SHOULD NOW WORK
+    float view_height_at_object_plane = 2.0f * distance_to_object_plane * tan(half_fovy_rad);
+    float view_width_at_object_plane = view_height_at_object_plane * aspect;
+
+    // Determine the world coordinates of the frustum edges at the object's Z-plane (Z=0),
+    // relative to the camera's look-at point (gCameraAt).
+    float world_top_y_boundary = gCameraAt.y + view_height_at_object_plane / 2.0f;
+    float world_left_x_boundary = gCameraAt.x - view_width_at_object_plane / 2.0f;
+
+    // Place the *center* of the sphere such that its top edge aligns with world_top_y_boundary
+    // and its left edge aligns with world_left_x_boundary.
+    vec3 initialPosition;
+    initialPosition.x = world_left_x_boundary + actualVisualRadius;
+    initialPosition.y = world_top_y_boundary - actualVisualRadius;
+    initialPosition.z = 0.0f; // Sphere starts at the Z=0 plane
+
     return initialPosition;
 }
 
