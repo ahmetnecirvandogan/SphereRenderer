@@ -18,6 +18,7 @@ inline float degreesToRadians(float degrees) {
 
 GLuint program;
 GLuint texture; // Texture ID
+
 //GLuint backgroundVAO, backgroundVBO; // VAO and VBO for background quad
 double frameRate = 120;
 double deltaTime = 1.0 / frameRate;
@@ -84,24 +85,17 @@ void updateProjection() {
     if (sceneHeight == 0) sceneHeight = 1; // Prevent division by zero
     float aspect = (float)sceneWidth / (float)sceneHeight;
 
-    // Adjust FOV with gZoomFactor for zooming
-    // Smaller gZoomFactor (zoom in) -> narrower FOV
-    // Larger gZoomFactor (zoom out) -> wider FOV
     GLfloat current_fovy = gInitialFOVy * gZoomFactor;
 
     // Clamp FOV to reasonable limits
     if (current_fovy < 1.0f) current_fovy = 1.0f;   // Prevent it from becoming too narrow
     if (current_fovy > 120.0f) current_fovy = 120.0f; // Prevent it from becoming too wide
 
-    // Assuming Angel.h provides a Perspective function:
-    // Perspective(fovY, aspectRatio, nearPlane, farPlane)
     gProjectionMatrix = Perspective(current_fovy, aspect, gZNear, gZFar);
 
     // Ensure the correct shader program is active
     glUseProgram(program);
     // Send the projection matrix to the shader
-    // Your original code used GL_TRUE for transpose, so we'll keep that.
-    // This might depend on how matrices are stored in Angel.h (often GL_FALSE is used with column-major matrices).
     glUniformMatrix4fv(Projection, 1, GL_TRUE, gProjectionMatrix);
 }
 
@@ -242,25 +236,10 @@ void setupSphereBuffers(GLuint vPositionLoc, GLuint vColorLoc, GLuint vNormalLoc
 //
 // init
 //
-
-// Ensure these global variables are defined at the top of main.cpp or in a shared header
-// extern vec3 gCameraEye; // = vec3(0.0f, 0.5f, 3.0f);
-// extern vec3 gCameraAt;  // = vec3(0.0f, 0.0f, 0.0f);
-// extern vec3 gCameraUp;  // = vec3(0.0f, 1.0f, 0.0f);
-// extern GLfloat gInitialFOVy; // = 45.0f;
-// extern GLfloat gZNear;       // = 0.1f;
-// extern GLfloat gZFar;        // = 100.0f;
-// extern float gZoomFactor;    // = 1.0f;
-// extern int sceneWidth, sceneHeight; // Initialized e.g., 1200, 600
-
-// Global for initial velocity, if you set it once and reuse
-// vec3 initialVelocity = vec3(0.5f, 0.0f, 0.0f); // Defined globally or initialized here
-
 void init()
 {
     // 1. Initialize Physics Object (needs computeInitialPosition)
     //    computeInitialPosition uses gCameraEye, gCameraAt, gInitialFOVy, gZoomFactor, sceneWidth, sceneHeight
-    //    Ensure these globals have their initial values set before this call.
     float sphereGeneratedRadius = 0.5f; // Radius used in generateSphere
     vec3 initPos = computeInitialPosition(sphereGeneratedRadius);
 
@@ -274,8 +253,6 @@ void init()
     glUseProgram(program);
 
     // 3. Setup vertex data and buffers for the sphere
-    //    bindObject internally calls generateSphere and setupSphereBuffers
-    //    vPosition attribute location is needed by bindObject/setupSphereBuffers
     GLuint vPositionLoc = glGetAttribLocation(program, "vPosition");
     bindObject(vPositionLoc); // Pass the VAO location
 
@@ -284,15 +261,10 @@ void init()
     Projection = glGetUniformLocation(program, "Projection");
 
     // 5. Set up and send the initial Projection matrix
-    //    updateProjection() uses gInitialFOVy, gZoomFactor, sceneWidth, sceneHeight, gZNear, gZFar
     updateProjection(); // This now sets the perspective projection
 
-    // NOTE: The old Ortho projection setup block that was here previously
-    // should have been REMOVED or COMMENTED OUT.
 
     // 6. Set up Lighting uniforms (ensure your Light class or direct glUniform calls are correct)
-    // Example: using direct glUniform calls as in your original code.
-    // If you have a Light class instance (e.g., lightSource), you might use its methods.
     vec3 lightColor(1.0f, 1.0f, 1.0f);
     float ambientStrength = 0.3f;
     vec3 lightDirection(1.0f, 1.0f, 0.0f); // Example direction
@@ -309,26 +281,9 @@ void init()
     if (ambientIntensityLoc != -1) glUniform1f(ambientIntensityLoc, ambientStrength);
     if (lightDirectionLoc != -1) glUniform3fv(lightDirectionLoc, 1, &lightDirection[0]);
     if (diffuseIntensityLoc != -1) glUniform1f(diffuseIntensityLoc, diffuseIntensity);
-
-    // If your assignment requires specular, add those uniforms too:
-    // GLint specularIntensityLoc = glGetUniformLocation(program, "directionalLight.specularIntensity");
-    // if (specularIntensityLoc != -1) glUniform1f(specularIntensityLoc, some_specular_intensity_value);
-
-    // Material uniforms (if you're starting to implement them)
-    // GLint matAmbientLoc = glGetUniformLocation(program, "material.ambient");
-    // ... etc.
-
     // 7. Set OpenGL states
     glEnable(GL_DEPTH_TEST);
-    // glEnable(GL_CULL_FACE); // If required by assignment (Section 3: Shading)
-    // glCullFace(GL_BACK);    // "
-    // glFrontFace(GL_CCW);   // " (usually default)
-
     glClearColor(0.0, 0.0, 0.0, 1.0); // Set background color (black)
-
-    // Commented out background texture loading as per assignment focusing on PPM for sphere
-    // loadTexture("toy-story-background.jpg"); // If you were using this for a background quad
-    // setupBackground();
 }
 
 //---------------------------------------------------------------------
@@ -363,8 +318,6 @@ void display(void) {
     bouncingObject.update(deltaTime);
     
     // Create View Matrix (Camera)
-    // Assuming Angel.h provides a LookAt function:
-    // LookAt(eyePosition, lookAtPosition, upVector)
     mat4 view_matrix = LookAt(gCameraEye, gCameraAt, gCameraUp);
 
     mat4 model_view = Translate(bouncingObject.position.x, bouncingObject.position.y, 0.1f) *
@@ -376,21 +329,11 @@ void display(void) {
 
     // Calculate the final ModelView matrix (View * Model)
     mat4 final_model_view_matrix = view_matrix * model_matrix;
-
-    // Send the ModelView matrix to the shader
-    // Your original code used GL_TRUE for transpose.
     glUniformMatrix4fv(ModelView, 1, GL_TRUE, final_model_view_matrix);
-
-    // The Projection matrix is already set and sent by updateProjection().
-    // No need to send it again here unless it changes per-frame independently
-    // of window resize or zoom operations.
-
     // Draw the sphere
     glBindVertexArray(sphereVAO);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, sphereIBO); // Good practice to rebind IBO
     glDrawElements(GL_TRIANGLES, indices_sphere.size(), GL_UNSIGNED_INT, 0);
-
-    // glBindVertexArray(0); // Unbind VAO (good practice)
 
     glFinish();
 }
