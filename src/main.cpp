@@ -8,6 +8,7 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 #include "light.h"
+#include "Material.h"
 #include <cmath>
 #ifndef M_PI
     #define M_PI 3.14159265358979323846
@@ -66,6 +67,14 @@ vec4 currentColor = vec4(1.0, 0.0f, 0.0f, 1.0f); //red
 
 Light lightSource;
 GLuint vPosition;
+
+Material plasticMaterial(0.5f, 32.0f);   // Example: moderate specular intensity, moderate shininess
+Material metallicMaterial(0.8f, 128.0f); // Example: high specular intensity, high shininess
+Material currentMaterial;                // The material currently in use
+
+// Uniform locations for material properties
+GLuint materialSpecularIntensityLoc;
+GLuint materialShininessLoc;
 
 float backgroundVertices[] = {
     // positions         // texture coords
@@ -242,6 +251,7 @@ void init()
     //    computeInitialPosition uses gCameraEye, gCameraAt, gInitialFOVy, gZoomFactor, sceneWidth, sceneHeight
     float sphereGeneratedRadius = 0.5f; // Radius used in generateSphere
     vec3 initPos = computeInitialPosition(sphereGeneratedRadius);
+    currentMaterial = plasticMaterial;
 
     // Initialize initialVelocity if not done globally
     initialVelocity = vec3(0.5f, 0.0f, 0.0f); // Example initial X-velocity
@@ -251,6 +261,13 @@ void init()
     // 2. Load shaders and use the resulting shader program
     program = InitShader("vshader.glsl", "fshader.glsl");
     glUseProgram(program);
+    
+    materialSpecularIntensityLoc = glGetUniformLocation(program, "u_materialSpecularIntensity");
+    materialShininessLoc = glGetUniformLocation(program, "u_materialShininess");
+    // Check if they are valid (not -1)
+    if(materialSpecularIntensityLoc == -1 || materialShininessLoc == -1) {
+        std::cerr << "Error: Could not find material uniform locations!" << std::endl;
+    }
 
     // 3. Setup vertex data and buffers for the sphere
     GLuint vPositionLoc = glGetAttribLocation(program, "vPosition");
@@ -304,7 +321,7 @@ void display(void) {
 
     // 3. Clear Both Color and Depth Buffers
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
+ 
 /*
     // 4. Render Background
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
@@ -320,7 +337,7 @@ void display(void) {
     glPolygonMode(GL_FRONT_AND_BACK, drawingMode);
     glUseProgram(program);
     bouncingObject.update(deltaTime);
-    
+     
     // Create View Matrix (Camera)
     mat4 view_matrix = LookAt(gCameraEye, gCameraAt, gCameraUp);
 
@@ -377,7 +394,17 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
     }
     case GLFW_KEY_M:
     {
-        //Define at least two options for material properties: either plastic or metallic (use the key M to toggle).
+        // Toggle between plastic and metallic
+        static bool isPlastic = true; // Keep track of current material state
+        if (isPlastic) {
+            currentMaterial = metallicMaterial;
+            std::cout << "Switched to Metallic Material" << std::endl;
+        } else {
+            currentMaterial = plasticMaterial;
+            std::cout << "Switched to Plastic Material" << std::endl;
+        }
+        isPlastic = !isPlastic;
+        // No need to call UseMaterial here, it's called in display() every frame.
         break;
     }
     case GLFW_KEY_Z: // Zoom In
@@ -504,7 +531,6 @@ void createAndBindBuffer(const void* data, size_t dataSize, GLuint& vao, GLuint&
     glBindVertexArray(0);
 }
 
-
 //---------------------------------------------------------------------
 //
 // main
@@ -514,7 +540,7 @@ int main()
 {
     if (!glfwInit())
         exit(EXIT_FAILURE);
-
+ 
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
