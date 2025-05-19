@@ -1,10 +1,10 @@
 # 🌐 Sphere Renderer
 
-**Explore the world through perfect spheres! This OpenGL application brings shading and texture mapping to life, building upon the foundations of Homework 1.**
+**Explore the world through perfect spheres! This OpenGL application brings shading and texture mapping to life.**
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT) ![Sphere Renderer Demo](path/to/your/cool_sphere_render.gif) ## ✨ Dive into Illuminated Roundness!
 
-This OpenGL program renders a sphere with advanced shading and texture mapping capabilities, fulfilling the requirements of COMP 410/510 Programming Assignment #3. Leveraging vertex and fragment shaders (OpenGL 3.1+), it allows you to:
+This OpenGL program renders a sphere with advanced shading and texture mapping capabilities. Leveraging vertex and fragment shaders (OpenGL 3.1+), it allows you to:
 
 * **Experience Dynamic Shading:** Toggle between smooth **Gouraud** and per-pixel **Phong** shading (using the `S` key).
 * **Master the Modified-Phong Model:** Observe realistic lighting with a single directional light source.
