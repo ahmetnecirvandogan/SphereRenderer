@@ -262,11 +262,15 @@ void init()
     program = InitShader("vshader.glsl", "fshader.glsl");
     glUseProgram(program);
     
-    materialSpecularIntensityLoc = glGetUniformLocation(program, "u_materialSpecularIntensity");
-    materialShininessLoc = glGetUniformLocation(program, "u_materialShininess");
-    // Check if they are valid (not -1)
-    if(materialSpecularIntensityLoc == -1 || materialShininessLoc == -1) {
-        std::cerr << "Error: Could not find material uniform locations!" << std::endl;
+    materialSpecularIntensityLoc = glGetUniformLocation(program, "material.specularIntensity");
+    materialShininessLoc = glGetUniformLocation(program, "material.shininess");
+
+     
+    GLint eyePosLoc = glGetUniformLocation(program, "eyePosition");
+    if (eyePosLoc != -1) {
+        glUniform3f(eyePosLoc, 0.0f, 0.0f, 0.0f);
+    } else {
+        std::cerr << "Warning: 'eyePosition' uniform not found in shader." << std::endl;
     }
 
     // 3. Setup vertex data and buffers for the sphere
@@ -336,6 +340,12 @@ void display(void) {
     // 5. Render the Physics Object (Sphere)
     glPolygonMode(GL_FRONT_AND_BACK, drawingMode);
     glUseProgram(program);
+    
+    if (materialSpecularIntensityLoc != -1 && materialShininessLoc != -1) {
+        currentMaterial.UseMaterial(materialSpecularIntensityLoc, materialShininessLoc);
+    }
+
+    
     bouncingObject.update(deltaTime);
      
     // Create View Matrix (Camera)
