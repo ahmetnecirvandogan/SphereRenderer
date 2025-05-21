@@ -16,41 +16,44 @@ struct Material {
     float specularIntensity;
     float shininess;
 };
-
-uniform DirectionalLight directionalLight;
 uniform Material material;
-
+uniform DirectionalLight directionalLight;
 uniform vec3 eyePosition;
+uniform float enableAmbient;
+uniform float enableDiffuse;
+uniform float enableSpecular;
 
 void main()
 {
+    // Calculate original components as before
     // Ambient component
-    vec3 ambient = directionalLight.ambientIntensity * directionalLight.color;
+    vec3 ambient_calc = directionalLight.ambientIntensity * directionalLight.color;
 
     // Diffuse component
     vec3 normal = normalize(viewNormal);
-    // Light direction is from fragment to light.
-    vec3 lightDir = normalize(-directionalLight.direction);
+    vec3 lightDir = normalize(-directionalLight.direction); // Vector from fragment to light.
     float diffuseFactor = max(dot(normal, lightDir), 0.0);
-    vec3 diffuse = directionalLight.diffuseIntensity * directionalLight.color * diffuseFactor;
+    vec3 diffuse_calc = directionalLight.diffuseIntensity * directionalLight.color * diffuseFactor;
     
     // Specular component
-    vec3 specularColor = vec3(0.0); // Initialize to black
-    
-    if(diffuseFactor > 0.0f) {
-        // Vector from fragment to eye (in view space, eye is at origin)
-        vec3 fragToEye = normalize(eyePosition - viewPos); // eyePosition is (0,0,0) in view space
-
-        // Reflection vector
+    vec3 specular_calc = vec3(0.0);
+    if(diffuseFactor > 0.0f) { // Only calculate specular if light hits the surface
+        vec3 fragToEye = normalize(eyePosition - viewPos);
+        // Assuming directionalLight.direction is the vector FROM the light source
         vec3 reflectedLightDirection = normalize(reflect(directionalLight.direction, normal));
-        
-        float specularFactor = dot(fragToEye, reflectedLightDirection);
-        if(specularFactor > 0.0f) {
-            specularFactor = pow(specularFactor, material.shininess);
-            specularColor = directionalLight.color * material.specularIntensity * specularFactor;
+        float specularFactorVal = dot(fragToEye, reflectedLightDirection); // Renamed to avoid conflict
+        if(specularFactorVal > 0.0f) {
+            specularFactorVal = pow(specularFactorVal, material.shininess);
+            specular_calc = directionalLight.color * material.specularIntensity * specularFactorVal;
         }
     }
     
-    vec3 result = ambient + diffuse + specularColor;
+    // Apply toggles by multiplying
+    vec3 finalAmbient = ambient_calc * enableAmbient;
+    vec3 finalDiffuse = diffuse_calc * enableDiffuse;
+    vec3 finalSpecular = specular_calc * enableSpecular;
+    
+    // Combine the (potentially toggled off) components
+    vec3 result = finalAmbient + finalDiffuse + finalSpecular;
     FragColor = vec4(result * vertexColor.rgb, vertexColor.a);
 }

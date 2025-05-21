@@ -19,7 +19,7 @@ inline float degreesToRadians(float degrees) {
 
 GLuint program;
 GLuint texture; // Texture ID
-
+ 
 //GLuint backgroundVAO, backgroundVBO; // VAO and VBO for background quad
 double frameRate = 120;
 double deltaTime = 1.0 / frameRate;
@@ -72,9 +72,16 @@ Material plasticMaterial(0.5f, 32.0f);   // Example: moderate specular intensity
 Material metallicMaterial(0.8f, 128.0f); // Example: high specular intensity, high shininess
 Material currentMaterial;                // The material currently in use
 
+
 // Uniform locations for material properties
 GLuint materialSpecularIntensityLoc;
 GLuint materialShininessLoc;
+// For toggling lighting components
+GLuint enableAmbientLoc, enableDiffuseLoc, enableSpecularLoc;
+float enableAmbientVal = 1.0f;  // 1.0f for ON, 0.0f for OFF. Initially all ON.
+float enableDiffuseVal = 1.0f;
+float enableSpecularVal = 1.0f;
+int gLightComponentToggleIndex = 0; // 0: Next toggle is Ambient, 1: Diffuse, 2: Specular
 
 float backgroundVertices[] = {
     // positions         // texture coords
@@ -306,6 +313,22 @@ void init()
     if (ambientIntensityLoc != -1) glUniform1f(ambientIntensityLoc, ambientStrength);
     if (lightDirectionLoc != -1) glUniform3fv(lightDirectionLoc, 1, &lightDirection[0]);
     if (diffuseIntensityLoc != -1) glUniform1f(diffuseIntensityLoc, diffuseIntensity);
+    
+    enableAmbientLoc = glGetUniformLocation(program, "enableAmbient");
+    enableDiffuseLoc = glGetUniformLocation(program, "enableDiffuse");
+    enableSpecularLoc = glGetUniformLocation(program, "enableSpecular");
+
+    if (enableAmbientLoc == -1 || enableDiffuseLoc == -1 || enableSpecularLoc == -1) {
+        std::cerr << "Error: Could not find lighting component enable uniform locations (enableAmbient, enableDiffuse, enableSpecular)!" << std::endl;
+    } else {
+        std::cout << "Successfully retrieved lighting component enable uniform locations." << std::endl;
+        // Set initial values (all components on by default)
+        glUniform1f(enableAmbientLoc, enableAmbientVal);
+        glUniform1f(enableDiffuseLoc, enableDiffuseVal);
+        glUniform1f(enableSpecularLoc, enableSpecularVal);
+        std::cout << "Initial lighting components (A,D,S) sent to shader: ON, ON, ON" << std::endl;
+    }
+    
     // 7. Set OpenGL states
     glEnable(GL_DEPTH_TEST);
     glClearColor(0.0, 0.0, 0.0, 1.0); // Set background color (black)
@@ -365,6 +388,12 @@ void display(void) {
     glBindVertexArray(sphereVAO);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, sphereIBO); // Good practice to rebind IBO
     glDrawElements(GL_TRIANGLES, indices_sphere.size(), GL_UNSIGNED_INT, 0);
+    
+    // Send lighting component enable flags
+    if (enableAmbientLoc != -1) glUniform1f(enableAmbientLoc, enableAmbientVal);
+    if (enableDiffuseLoc != -1) glUniform1f(enableDiffuseLoc, enableDiffuseVal);
+    if (enableSpecularLoc != -1) glUniform1f(enableSpecularLoc, enableSpecularVal);
+
 
     glFinish();
 }
@@ -385,12 +414,33 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
         bouncingObject.acceleration = vec3(0.0f, 0.0f, 0.0f); // Reset acceleration
         break;
     }
-    case GLFW_KEY_O:
-    {
-        //The user should be able to turn off the specular, diffuse and ambient components one by one when desired
-        
-        break;
-    }
+        case GLFW_KEY_O:
+            {
+                switch (gLightComponentToggleIndex) {
+                    case 0: // Toggle Ambient
+                        enableAmbientVal = 1.0f - enableAmbientVal; // Flips 0.0 to 1.0 and 1.0 to 0.0
+                        std::cout << "Toggled Ambient Light to: " << (enableAmbientVal > 0.5f ? "ON" : "OFF") << std::endl;
+                        break;
+                    case 1: // Toggle Diffuse
+                        enableDiffuseVal = 1.0f - enableDiffuseVal;
+                        std::cout << "Toggled Diffuse Light to: " << (enableDiffuseVal > 0.5f ? "ON" : "OFF") << std::endl;
+                        break;
+                    case 2: // Toggle Specular
+                        enableSpecularVal = 1.0f - enableSpecularVal;
+                        std::cout << "Toggled Specular Light to: " << (enableSpecularVal > 0.5f ? "ON" : "OFF") << std::endl;
+                        break;
+                }
+                gLightComponentToggleIndex = (gLightComponentToggleIndex + 1) % 3; // Cycle to the next component for the next 'O' press
+
+                // Optional: Print overall state and what's next
+                std::cout << "  Current Light States -> Ambient: " << (enableAmbientVal > 0.5f ? "ON" : "OFF")
+                          << ", Diffuse: " << (enableDiffuseVal > 0.5f ? "ON" : "OFF")
+                          << ", Specular: " << (enableSpecularVal > 0.5f ? "ON" : "OFF") << std::endl;
+                std::cout << "  Next 'O' press will toggle: "
+                          << (gLightComponentToggleIndex == 0 ? "Ambient" : (gLightComponentToggleIndex == 1 ? "Diffuse" : "Specular"))
+                          << std::endl;
+                break;
+            }
     case GLFW_KEY_S:
     {
         //The user should be able to switch between Gouraud and Phong shading options
