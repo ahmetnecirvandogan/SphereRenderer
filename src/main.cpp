@@ -13,8 +13,16 @@
 #ifndef M_PI
     #define M_PI 3.14159265358979323846
 #endif
+//Helper functions
 inline float degreesToRadians(float degrees) {
     return degrees * (float(M_PI) / 180.0f);
+}
+mat3 extract_mat3_from_mat4(const mat4& m) {
+    return mat3(
+        vec3(m[0].x, m[0].y, m[0].z), // First column of mat3 from first column of mat4
+        vec3(m[1].x, m[1].y, m[1].z), // Second column
+        vec3(m[2].x, m[2].y, m[2].z)  // Third column
+    );
 }
 
 GLuint program;
@@ -75,6 +83,12 @@ Material currentMaterial;                // The material currently in use
 // Shading mode (1 for Phong (default), 0 for Gouraud)
 int gShadingMode = 1;
 GLuint shadingModeLoc;
+
+// For light movement toggle
+bool gIsLightFixed = true; // Initially, light is fixed in world space
+vec3 gFixedLightDirection_World = normalize(vec3(0.5f, 0.5f, -1.0f)); // Example: Light from top-right-front in WORLD space
+vec3 gObjectLocalLightDirection = normalize(vec3(0.0f, 0.0f, 1.0f)); // Example: Light shines FROM the object's positive Z direction (behind it) IN OBJECT'S LOCAL SPACE
+GLuint gLightDirectionLoc; // To store location of directionalLight.direction
 
 
 // Uniform locations for material properties
@@ -309,14 +323,21 @@ void init()
     // Uniform locations for the DirectionalLight struct in the shader
     GLint ambientColorLoc = glGetUniformLocation(program, "directionalLight.color");
     GLint ambientIntensityLoc = glGetUniformLocation(program, "directionalLight.ambientIntensity");
-    GLint lightDirectionLoc = glGetUniformLocation(program, "directionalLight.direction");
     GLint diffuseIntensityLoc = glGetUniformLocation(program, "directionalLight.diffuseIntensity");
+    gLightDirectionLoc = glGetUniformLocation(program, "directionalLight.direction"); // Assign to global
+
 
     // Check if locations are valid (not -1) before using them
     if (ambientColorLoc != -1) glUniform3fv(ambientColorLoc, 1, &lightColor[0]);
     if (ambientIntensityLoc != -1) glUniform1f(ambientIntensityLoc, ambientStrength);
-    if (lightDirectionLoc != -1) glUniform3fv(lightDirectionLoc, 1, &lightDirection[0]);
     if (diffuseIntensityLoc != -1) glUniform1f(diffuseIntensityLoc, diffuseIntensity);
+    if (gLightDirectionLoc != -1) {
+        vec3 initialTempViewLightDir = normalize(vec3(0.5f, 0.5f, -1.0f)); // A generic view-space direction
+        glUniform3fv(gLightDirectionLoc, 1, &initialTempViewLightDir[0]);
+        std::cout << "Retrieved directionalLight.direction uniform location." << std::endl;
+    } else {
+        std::cerr << "Error: Could not find 'directionalLight.direction' uniform location!" << std::endl;
+    }
     
     enableAmbientLoc = glGetUniformLocation(program, "enableAmbient");
     enableDiffuseLoc = glGetUniformLocation(program, "enableDiffuse");
@@ -405,6 +426,31 @@ void display(void) {
     if (enableAmbientLoc != -1) glUniform1f(enableAmbientLoc, enableAmbientVal);
     if (enableDiffuseLoc != -1) glUniform1f(enableDiffuseLoc, enableDiffuseVal);
     if (enableSpecularLoc != -1) glUniform1f(enableSpecularLoc, enableSpecularVal);
+    
+
+
+    vec3 currentLightDirection_ViewSpace;
+    mat3 view_matrix_3x3 = extract_mat3_from_mat4(view_matrix); // Use the helper
+
+    if (gIsLightFixed) {
+        currentLightDirection_ViewSpace = normalize(view_matrix_3x3 * gFixedLightDirection_World);
+    } else {
+        mat4 object_orientation_matrix = RotateY(Theta[Yaxis]) * RotateZ(Theta[Zaxis]);
+        mat3 object_orientation_matrix_3x3 = extract_mat3_from_mat4(object_orientation_matrix); // Use the helper
+
+        vec3 worldLightDir = normalize(object_orientation_matrix_3x3 * gObjectLocalLightDirection);
+        currentLightDirection_ViewSpace = normalize(view_matrix_3x3 * worldLightDir);
+    }
+
+    if (gLightDirectionLoc != -1) {
+        glUniform3fv(gLightDirectionLoc, 1, &currentLightDirection_ViewSpace[0]);
+    }
+
+
+    // Send the calculated view-space light direction to the shader
+    if (gLightDirectionLoc != -1) {
+        glUniform3fv(gLightDirectionLoc, 1, &currentLightDirection_ViewSpace[0]);
+    }
 
 
     glFinish();
@@ -471,7 +517,12 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
     }
     case GLFW_KEY_L:
     {
-        //The user should be able to keep the light source fixed in position or move with the object
+        gIsLightFixed = !gIsLightFixed;
+        if (gIsLightFixed) {
+            std::cout << "Light source: FIXED in world space" << std::endl;
+        } else {
+            std::cout << "Light source: MOVES WITH OBJECT (relative to object orientation)" << std::endl;
+        }
         break;
     }
     case GLFW_KEY_M:
