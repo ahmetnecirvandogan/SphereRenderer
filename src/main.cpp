@@ -72,6 +72,10 @@ Material plasticMaterial(0.5f, 32.0f);   // Example: moderate specular intensity
 Material metallicMaterial(0.8f, 128.0f); // Example: high specular intensity, high shininess
 Material currentMaterial;                // The material currently in use
 
+// Shading mode (1 for Phong (default), 0 for Gouraud)
+int gShadingMode = 1;
+GLuint shadingModeLoc;
+
 
 // Uniform locations for material properties
 GLuint materialSpecularIntensityLoc;
@@ -329,6 +333,14 @@ void init()
         std::cout << "Initial lighting components (A,D,S) sent to shader: ON, ON, ON" << std::endl;
     }
     
+    shadingModeLoc = glGetUniformLocation(program, "shadingMode");
+    if (shadingModeLoc == -1) {
+        std::cerr << "Error: Could not find 'shadingMode' uniform location!" << std::endl;
+    } else {
+        std::cout << "Successfully retrieved 'shadingMode' uniform location." << std::endl;
+        glUniform1i(shadingModeLoc, gShadingMode); // Set initial mode to Phong
+    }
+    
     // 7. Set OpenGL states
     glEnable(GL_DEPTH_TEST);
     glClearColor(0.0, 0.0, 0.0, 1.0); // Set background color (black)
@@ -414,37 +426,47 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
         bouncingObject.acceleration = vec3(0.0f, 0.0f, 0.0f); // Reset acceleration
         break;
     }
-        case GLFW_KEY_O:
-            {
-                switch (gLightComponentToggleIndex) {
-                    case 0: // Toggle Ambient
-                        enableAmbientVal = 1.0f - enableAmbientVal; // Flips 0.0 to 1.0 and 1.0 to 0.0
-                        std::cout << "Toggled Ambient Light to: " << (enableAmbientVal > 0.5f ? "ON" : "OFF") << std::endl;
-                        break;
-                    case 1: // Toggle Diffuse
-                        enableDiffuseVal = 1.0f - enableDiffuseVal;
-                        std::cout << "Toggled Diffuse Light to: " << (enableDiffuseVal > 0.5f ? "ON" : "OFF") << std::endl;
-                        break;
-                    case 2: // Toggle Specular
-                        enableSpecularVal = 1.0f - enableSpecularVal;
-                        std::cout << "Toggled Specular Light to: " << (enableSpecularVal > 0.5f ? "ON" : "OFF") << std::endl;
-                        break;
-                }
-                gLightComponentToggleIndex = (gLightComponentToggleIndex + 1) % 3; // Cycle to the next component for the next 'O' press
-
-                // Optional: Print overall state and what's next
-                std::cout << "  Current Light States -> Ambient: " << (enableAmbientVal > 0.5f ? "ON" : "OFF")
-                          << ", Diffuse: " << (enableDiffuseVal > 0.5f ? "ON" : "OFF")
-                          << ", Specular: " << (enableSpecularVal > 0.5f ? "ON" : "OFF") << std::endl;
-                std::cout << "  Next 'O' press will toggle: "
-                          << (gLightComponentToggleIndex == 0 ? "Ambient" : (gLightComponentToggleIndex == 1 ? "Diffuse" : "Specular"))
-                          << std::endl;
-                break;
+    case GLFW_KEY_O:
+        {
+            switch (gLightComponentToggleIndex) {
+                case 0: // Toggle Ambient
+                    enableAmbientVal = 1.0f - enableAmbientVal; // Flips 0.0 to 1.0 and 1.0 to 0.0
+                    std::cout << "Toggled Ambient Light to: " << (enableAmbientVal > 0.5f ? "ON" : "OFF") << std::endl;
+                    break;
+                case 1: // Toggle Diffuse
+                    enableDiffuseVal = 1.0f - enableDiffuseVal;
+                    std::cout << "Toggled Diffuse Light to: " << (enableDiffuseVal > 0.5f ? "ON" : "OFF") << std::endl;
+                    break;
+                case 2: // Toggle Specular
+                    enableSpecularVal = 1.0f - enableSpecularVal;
+                    std::cout << "Toggled Specular Light to: " << (enableSpecularVal > 0.5f ? "ON" : "OFF") << std::endl;
+                    break;
             }
+            gLightComponentToggleIndex = (gLightComponentToggleIndex + 1) % 3; // Cycle to the next component for the next 'O' press
+
+            // Optional: Print overall state and what's next
+            std::cout << "  Current Light States -> Ambient: " << (enableAmbientVal > 0.5f ? "ON" : "OFF")
+                      << ", Diffuse: " << (enableDiffuseVal > 0.5f ? "ON" : "OFF")
+                      << ", Specular: " << (enableSpecularVal > 0.5f ? "ON" : "OFF") << std::endl;
+            std::cout << "  Next 'O' press will toggle: "
+                      << (gLightComponentToggleIndex == 0 ? "Ambient" : (gLightComponentToggleIndex == 1 ? "Diffuse" : "Specular"))
+                      << std::endl;
+            break;
+        }
     case GLFW_KEY_S:
     {
-        //The user should be able to switch between Gouraud and Phong shading options
-        
+        gShadingMode = 1 - gShadingMode; // Toggle between 0 (Gouraud) and 1 (Phong)
+        if (gShadingMode == 0) {
+            std::cout << "Switched to Gouraud Shading" << std::endl;
+        } else {
+            std::cout << "Switched to Phong Shading" << std::endl;
+        }
+
+        // Update the uniform immediately
+        if (shadingModeLoc != -1) {
+            glUseProgram(program); // Ensure the correct program is active
+            glUniform1i(shadingModeLoc, gShadingMode);
+        }
         break;
     }
     case GLFW_KEY_L:
