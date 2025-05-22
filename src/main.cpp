@@ -63,7 +63,6 @@ enum DisplayMode {
 DisplayMode currentDisplayMode = MODE_SHADING;
 GLuint displayModeLoc;
 
-vec3 shadowLightPos = vec3(1.0f, 3.0f, 1.5f); //in world coordinates
 const float floorLevel = -1.0f;
 GLuint u_isShadowPassLoc;
 GLuint u_shadowColorLoc;
@@ -101,7 +100,7 @@ GLuint shadingModeLoc;
 
 // Light movement toggle
 bool gIsLightFixed = true;
-vec3 gFixedLightDirection_World = normalize(vec3(0.5f, 0.5f, -1.0f));
+vec3 gFixedLightDirection_World = normalize(vec3(-0.5f, -0.5f, 1.0f));
 vec3 gObjectLocalLightDirection = normalize(vec3(0.0f, 0.0f, 1.0f));
 GLuint gLightDirectionLoc;
 
@@ -376,66 +375,59 @@ void init()
 
 void display(void) {
     glEnable(GL_DEPTH_TEST);
-    glDepthFunc(GL_LESS); // Standard depth function
+    glDepthFunc(GL_LESS);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     glUseProgram(program);
     
-    // Set polygon mode based on currentDisplayMode
     if (currentDisplayMode == MODE_WIREFRAME) {
         glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
     } else {
-        // MODE_SHADING, MODE_SHADING_WITH_SHADOW, MODE_TEXTURE use GL_FILL
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     }
 
-    // Send displayMode to shader (for texture vs. regular shading on the object itself)
+    int shaderDisplayMode = static_cast<int>(currentDisplayMode);
+    if (currentDisplayMode == MODE_SHADING_WITH_SHADOW) {
+        shaderDisplayMode = static_cast<int>(MODE_SHADING);
+    } else if (currentDisplayMode == MODE_TEXTURE) {
+        shaderDisplayMode = 2;
+    } else if (currentDisplayMode == MODE_SHADING) {
+        shaderDisplayMode = 0;
+    } else if (currentDisplayMode == MODE_WIREFRAME) {
+        shaderDisplayMode = 0;
+    }
     if (displayModeLoc != -1) {
-        // Map our 4-state DisplayMode to the 3-state 'displayMode' uniform in shader if needed,
-        // or adjust shader's 'displayMode' logic.
-        // Assuming shader's displayMode: 0=Shading, 1=Wireframe(not used in FS), 2=Texture
-        // If currentDisplayMode is SHADING_WITH_SHADOW, treat as SHADING for object's own rendering.
-        int shaderDisplayMode = static_cast<int>(currentDisplayMode);
-        if (currentDisplayMode == MODE_SHADING_WITH_SHADOW) {
-            shaderDisplayMode = static_cast<int>(MODE_SHADING); // Object itself is just shaded
-        } else if (currentDisplayMode == MODE_TEXTURE) {
-             shaderDisplayMode = 2; // Explicitly map to shader's texture mode
-        } else if (currentDisplayMode == MODE_SHADING) {
-             shaderDisplayMode = 0; // Explicitly map to shader's shading mode
-        }
-        // Wireframe mode doesn't need specific shader displayMode, but send 0 for safety.
-        else if (currentDisplayMode == MODE_WIREFRAME) {
-             shaderDisplayMode = 0;
-        }
-
-
         glUniform1i(displayModeLoc, shaderDisplayMode);
     }
     
-    // Bind texture if in texture mode (for the object, not the shadow)
     if (currentDisplayMode == MODE_TEXTURE) {
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, currentSphereTextureID);
     }
     
-    // Update material for the object
     if (materialSpecularIntensityLoc != -1 && materialShininessLoc != -1) {
         currentMaterial.UseMaterial(materialSpecularIntensityLoc, materialShininessLoc);
     }
     
     bouncingObject.update(deltaTime);
      
-    // --- Common Matrices ---
     mat4 view_matrix = LookAt(gCameraEye, gCameraAt, gCameraUp);
-    // Model matrix for the sphere itself
     mat4 sphere_model_matrix = Translate(bouncingObject.position.x, bouncingObject.position.y, bouncingObject.position.z) *
                            RotateY(Theta[Yaxis]) *
                            RotateZ(Theta[Zaxis]) *
                            Scale(0.48f, 0.48f, 0.48f);
 
-    // --- Render the Sphere Normally ---
+    vec3 world_light_direction_vector;
+    if (gIsLightFixed) {
+        world_light_direction_vector = gFixedLightDirection_World;
+    } else {
+        mat4 object_orientation_matrix = RotateY(Theta[Yaxis]) * RotateZ(Theta[Zaxis]);
+        mat3 object_orientation_matrix_3x3 = extract_mat3_from_mat4(object_orientation_matrix);
+        world_light_direction_vector = normalize(object_orientation_matrix_3x3 * gObjectLocalLightDirection);
+    }
+
     if (u_isShadowPassLoc != -1) {
-        glUniform1i(u_isShadowPassLoc, 0); // Tell shader: NOT a shadow pass
+        glUniform1i(u_isShadowPassLoc, 0);
     }
     mat4 final_model_view_matrix = view_matrix * sphere_model_matrix;
     glUniformMatrix4fv(ModelView, 1, GL_TRUE, final_model_view_matrix);
@@ -444,91 +436,76 @@ void display(void) {
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, sphereIBO);
     glDrawElements(GL_TRIANGLES, indices_sphere.size(), GL_UNSIGNED_INT, 0);
     
-    // --- Render the Shadow if in SHADING_WITH_SHADOW mode ---
     if (currentDisplayMode == MODE_SHADING_WITH_SHADOW) {
         if (u_isShadowPassLoc != -1) {
-            glUniform1i(u_isShadowPassLoc, 1); // Tell shader: This IS a shadow pass
+            glUniform1i(u_isShadowPassLoc, 1);
         }
         if (u_shadowColorLoc != -1) {
-            // Dark grey, slightly transparent shadow. Alpha might need blending enabled.
             glUniform4f(u_shadowColorLoc, 0.2f, 0.2f, 0.2f, 0.6f);
         }
 
-        // Define plane (y = floorLevel, so 0x + 1y + 0z - floorLevel = 0)
-        // Plane coefficients (A, B, C, D) for Ax+By+Cz+D=0
-        vec4 planeCoeffs = vec4(0.0f, 1.0f, 0.0f, -floorLevel);
-        vec4 lightPosWorld = vec4(shadowLightPos.x, shadowLightPos.y, shadowLightPos.z, 1.0f); // w=1 for point light
+        vec3 L = normalize(world_light_direction_vector); // Direction light travels
+        mat4 directionalShadowMatrix = Angel::identity();
 
-        float dotLightPlane = dot(lightPosWorld, planeCoeffs);
+        if (abs(L.y) > 0.0001f) {
 
-        mat4 planarShadowMatrix; // Column-major order for Angel::mat4
+            directionalShadowMatrix[0][0] = 1.0f;
+            directionalShadowMatrix[1][0] = L.x / L.y;
+            // Column 0: (1, 0, 0, 0)T
+            directionalShadowMatrix[0][0] = 1.0f;
+            directionalShadowMatrix[1][0] = 0.0f;
+            directionalShadowMatrix[2][0] = 0.0f;
+            directionalShadowMatrix[3][0] = 0.0f;
 
-        planarShadowMatrix[0][0] = dotLightPlane - lightPosWorld.x * planeCoeffs.x;
-        planarShadowMatrix[0][1] = 0.0f           - lightPosWorld.x * planeCoeffs.y;
-        planarShadowMatrix[0][2] = 0.0f           - lightPosWorld.x * planeCoeffs.z;
-        planarShadowMatrix[0][3] = 0.0f           - lightPosWorld.x * planeCoeffs.w;
+            // Column 1: (-Lx/Ly, 0, -Lz/Ly, 0)T
+            directionalShadowMatrix[0][1] = -L.x / L.y;
+            directionalShadowMatrix[1][1] = 0.0f;      // This makes y_shadow = 0 if it were projecting to y=0
+            directionalShadowMatrix[2][1] = -L.z / L.y;
+            directionalShadowMatrix[3][1] = 0.0f;
 
-        planarShadowMatrix[1][0] = 0.0f           - lightPosWorld.y * planeCoeffs.x;
-        planarShadowMatrix[1][1] = dotLightPlane - lightPosWorld.y * planeCoeffs.y;
-        planarShadowMatrix[1][2] = 0.0f           - lightPosWorld.y * planeCoeffs.z;
-        planarShadowMatrix[1][3] = 0.0f           - lightPosWorld.y * planeCoeffs.w;
+            // Column 2: (0,0,1,0)T
+            directionalShadowMatrix[0][2] = 0.0f;
+            directionalShadowMatrix[1][2] = 0.0f;
+            directionalShadowMatrix[2][2] = 1.0f;
+            directionalShadowMatrix[3][2] = 0.0f;
 
-        planarShadowMatrix[2][0] = 0.0f           - lightPosWorld.z * planeCoeffs.x;
-        planarShadowMatrix[2][1] = 0.0f           - lightPosWorld.z * planeCoeffs.y;
-        planarShadowMatrix[2][2] = dotLightPlane - lightPosWorld.z * planeCoeffs.z;
-        planarShadowMatrix[2][3] = 0.0f           - lightPosWorld.z * planeCoeffs.w;
+            // Column 3 (Translation): ( (Lx/Ly)*k, k, (Lz/Ly)*k, 1 )T where k=floorLevel
+            directionalShadowMatrix[0][3] = (L.x / L.y) * floorLevel;
+            directionalShadowMatrix[1][3] = floorLevel;
+            directionalShadowMatrix[2][3] = (L.z / L.y) * floorLevel;
+            directionalShadowMatrix[3][3] = 1.0f;
 
-        planarShadowMatrix[3][0] = 0.0f           - lightPosWorld.w * planeCoeffs.x;
-        planarShadowMatrix[3][1] = 0.0f           - lightPosWorld.w * planeCoeffs.y;
-        planarShadowMatrix[3][2] = 0.0f           - lightPosWorld.w * planeCoeffs.z;
-        planarShadowMatrix[3][3] = dotLightPlane - lightPosWorld.w * planeCoeffs.w;
+        } else {
+            directionalShadowMatrix = Angel::identity();
+            if (u_isShadowPassLoc != -1) glUniform1i(u_isShadowPassLoc, 0);
+        }
         
-        // The shadow matrix projects vertices in world space onto the plane.
-        // So, apply it to the sphere's world model matrix.
-        mat4 model_matrix_for_shadow = planarShadowMatrix * sphere_model_matrix;
+        mat4 model_matrix_for_shadow = directionalShadowMatrix * sphere_model_matrix;
         mat4 final_shadow_model_view = view_matrix * model_matrix_for_shadow;
 
         glUniformMatrix4fv(ModelView, 1, GL_TRUE, final_shadow_model_view);
 
-        // Optional: For preventing z-fighting with the floor if you had one, or self-shadowing artifacts
-        // glEnable(GL_POLYGON_OFFSET_FILL);
-        // glPolygonOffset(-1.0f, -1.0f); // Adjust factors as needed
-
-        // If shadow has alpha < 1.0, enable blending
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        // Shadows are often drawn with depth test enabled but depth writes disabled,
-        // so they don't incorrectly occlude things behind them if slightly off the plane.
         glDepthMask(GL_FALSE);
 
         glDrawElements(GL_TRIANGLES, indices_sphere.size(), GL_UNSIGNED_INT, 0);
         
-        glDepthMask(GL_TRUE);  // Re-enable depth writes
+        glDepthMask(GL_TRUE);
         glDisable(GL_BLEND);
-        // glDisable(GL_POLYGON_OFFSET_FILL);
 
         if (u_isShadowPassLoc != -1) {
-            glUniform1i(u_isShadowPassLoc, 0); // Reset for next frame
+            glUniform1i(u_isShadowPassLoc, 0);
         }
     }
     
-    // Send lighting component enable flags (these affect the main object, not the flat shadow)
     if (enableAmbientLoc != -1) glUniform1f(enableAmbientLoc, enableAmbientVal);
     if (enableDiffuseLoc != -1) glUniform1f(enableDiffuseLoc, enableDiffuseVal);
     if (enableSpecularLoc != -1) glUniform1f(enableSpecularLoc, enableSpecularVal);
     
-    // Update light direction for shading the main object
     vec3 currentLightDirection_ViewSpace;
     mat3 view_matrix_3x3 = extract_mat3_from_mat4(view_matrix);
-
-    if (gIsLightFixed) {
-        currentLightDirection_ViewSpace = normalize(view_matrix_3x3 * gFixedLightDirection_World);
-    } else {
-        mat4 object_orientation_matrix = RotateY(Theta[Yaxis]) * RotateZ(Theta[Zaxis]);
-        mat3 object_orientation_matrix_3x3 = extract_mat3_from_mat4(object_orientation_matrix);
-        vec3 worldLightDir = normalize(object_orientation_matrix_3x3 * gObjectLocalLightDirection);
-        currentLightDirection_ViewSpace = normalize(view_matrix_3x3 * worldLightDir);
-    }
+    currentLightDirection_ViewSpace = normalize(view_matrix_3x3 * world_light_direction_vector);
 
     if (gLightDirectionLoc != -1) {
         glUniform3fv(gLightDirectionLoc, 1, &currentLightDirection_ViewSpace[0]);
@@ -714,13 +691,6 @@ vec3 computeInitialPosition(float objectRadiusUnscaled) {
     return initialPosition;
 }
 
-// createAndBindBuffer seems unused, remove if confirmed
-/*
-void createAndBindBuffer(const void* data, size_t dataSize, GLuint& vao, GLuint& vbo, GLuint vPosition, const GLuint* indicesData = nullptr, size_t indicesSize = 0) {
-    // ...
-}
-*/
-
 int main()
 {
     if (!glfwInit())
@@ -732,7 +702,7 @@ int main()
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
     glfwWindowHint(GLFW_RESIZABLE, GL_TRUE);
 
-    GLFWwindow* window = glfwCreateWindow(sceneWidth, sceneHeight, "COMP410/510 HW3", NULL, NULL); // Updated Title
+    GLFWwindow* window = glfwCreateWindow(sceneWidth, sceneHeight, "Sphere Renderer", NULL, NULL);
     glfwMakeContextCurrent(window);
 
     if (!window)
