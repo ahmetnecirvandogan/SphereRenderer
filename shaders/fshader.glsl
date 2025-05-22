@@ -30,10 +30,18 @@ uniform float enableAmbient;
 uniform float enableDiffuse;
 uniform float enableSpecular;
 
+uniform bool u_isShadowPass;   // New uniform
+uniform vec4 u_shadowColor;    // New uniform (e.g., (0.2, 0.2, 0.2, 0.5))
+
 uniform sampler2D textureSampler; // Your sphere's texture
 
 void main()
 {
+    if (u_isShadowPass) {
+        FragColor = u_shadowColor;
+        return; // Skip all other calculations for shadow
+    }
+    
     // --- Lighting Calculation (common components) ---
     // These components represent the light's interaction, independent of base surface color initially
     vec3 N_eff = normalize(vs_ViewNormal);

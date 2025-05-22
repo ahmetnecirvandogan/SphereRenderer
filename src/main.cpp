@@ -56,11 +56,17 @@ std::vector<vec4> colors_sphere;
 // GLenum drawingMode = GL_FILL; // Superseded by currentDisplayMode for wireframe/fill
 enum DisplayMode {
     MODE_SHADING = 0,
-    MODE_WIREFRAME = 1,
-    MODE_TEXTURE = 2
+    MODE_SHADING_WITH_SHADOW = 1,
+    MODE_WIREFRAME = 2,
+    MODE_TEXTURE = 3
 };
 DisplayMode currentDisplayMode = MODE_SHADING;
 GLuint displayModeLoc;
+
+vec3 shadowLightPos = vec3(1.0f, 3.0f, 1.5f); //in world coordinates
+const float floorLevel = -1.0f;
+GLuint u_isShadowPassLoc;
+GLuint u_shadowColorLoc;
 
 // setup for sphere
 const int latitudeBands = 50;
@@ -348,6 +354,16 @@ void init()
     } else {
         std::cerr << "Warning: 'textureSampler' uniform not found in shader." << std::endl;
     }
+    
+    u_isShadowPassLoc = glGetUniformLocation(program, "u_isShadowPass");
+    u_shadowColorLoc = glGetUniformLocation(program, "u_shadowColor");
+
+    if (u_isShadowPassLoc == -1) {
+        std::cerr << "Warning: 'u_isShadowPass' uniform not found in shader." << std::endl;
+    }
+    if (u_shadowColorLoc == -1) {
+        std::cerr << "Warning: 'u_shadowColor' uniform not found in shader." << std::endl;
+    }
 
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
@@ -360,51 +376,148 @@ void init()
 
 void display(void) {
     glEnable(GL_DEPTH_TEST);
-    glDepthFunc(GL_LESS);
+    glDepthFunc(GL_LESS); // Standard depth function
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     glUseProgram(program);
     
+    // Set polygon mode based on currentDisplayMode
     if (currentDisplayMode == MODE_WIREFRAME) {
         glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
     } else {
+        // MODE_SHADING, MODE_SHADING_WITH_SHADOW, MODE_TEXTURE use GL_FILL
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     }
 
+    // Send displayMode to shader (for texture vs. regular shading on the object itself)
     if (displayModeLoc != -1) {
-        glUniform1i(displayModeLoc, static_cast<int>(currentDisplayMode));
+        // Map our 4-state DisplayMode to the 3-state 'displayMode' uniform in shader if needed,
+        // or adjust shader's 'displayMode' logic.
+        // Assuming shader's displayMode: 0=Shading, 1=Wireframe(not used in FS), 2=Texture
+        // If currentDisplayMode is SHADING_WITH_SHADOW, treat as SHADING for object's own rendering.
+        int shaderDisplayMode = static_cast<int>(currentDisplayMode);
+        if (currentDisplayMode == MODE_SHADING_WITH_SHADOW) {
+            shaderDisplayMode = static_cast<int>(MODE_SHADING); // Object itself is just shaded
+        } else if (currentDisplayMode == MODE_TEXTURE) {
+             shaderDisplayMode = 2; // Explicitly map to shader's texture mode
+        } else if (currentDisplayMode == MODE_SHADING) {
+             shaderDisplayMode = 0; // Explicitly map to shader's shading mode
+        }
+        // Wireframe mode doesn't need specific shader displayMode, but send 0 for safety.
+        else if (currentDisplayMode == MODE_WIREFRAME) {
+             shaderDisplayMode = 0;
+        }
+
+
+        glUniform1i(displayModeLoc, shaderDisplayMode);
     }
     
+    // Bind texture if in texture mode (for the object, not the shadow)
     if (currentDisplayMode == MODE_TEXTURE) {
-        glActiveTexture(GL_TEXTURE0); // Activate texture unit 0
-        glBindTexture(GL_TEXTURE_2D, currentSphereTextureID); // Bind the current sphere texture
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, currentSphereTextureID);
     }
     
+    // Update material for the object
     if (materialSpecularIntensityLoc != -1 && materialShininessLoc != -1) {
         currentMaterial.UseMaterial(materialSpecularIntensityLoc, materialShininessLoc);
     }
     
-    bouncingObject.update(deltaTime); // Consider passing actual deltaTime from main loop
+    bouncingObject.update(deltaTime);
      
+    // --- Common Matrices ---
     mat4 view_matrix = LookAt(gCameraEye, gCameraAt, gCameraUp);
-    mat4 model_matrix_no_scale = Translate(bouncingObject.position.x, bouncingObject.position.y, 0.1f) * // Ensure Z is appropriate
-        RotateY(Theta[Yaxis]) *
-        RotateZ(Theta[Zaxis]);
- 
-    float sphereScale = 0.48f;
-    mat4 model_matrix = model_matrix_no_scale * Scale(sphereScale, sphereScale, sphereScale);
+    // Model matrix for the sphere itself
+    mat4 sphere_model_matrix = Translate(bouncingObject.position.x, bouncingObject.position.y, bouncingObject.position.z) *
+                           RotateY(Theta[Yaxis]) *
+                           RotateZ(Theta[Zaxis]) *
+                           Scale(0.48f, 0.48f, 0.48f);
 
-    mat4 final_model_view_matrix = view_matrix * model_matrix;
+    // --- Render the Sphere Normally ---
+    if (u_isShadowPassLoc != -1) {
+        glUniform1i(u_isShadowPassLoc, 0); // Tell shader: NOT a shadow pass
+    }
+    mat4 final_model_view_matrix = view_matrix * sphere_model_matrix;
     glUniformMatrix4fv(ModelView, 1, GL_TRUE, final_model_view_matrix);
     
     glBindVertexArray(sphereVAO);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, sphereIBO);
     glDrawElements(GL_TRIANGLES, indices_sphere.size(), GL_UNSIGNED_INT, 0);
     
+    // --- Render the Shadow if in SHADING_WITH_SHADOW mode ---
+    if (currentDisplayMode == MODE_SHADING_WITH_SHADOW) {
+        if (u_isShadowPassLoc != -1) {
+            glUniform1i(u_isShadowPassLoc, 1); // Tell shader: This IS a shadow pass
+        }
+        if (u_shadowColorLoc != -1) {
+            // Dark grey, slightly transparent shadow. Alpha might need blending enabled.
+            glUniform4f(u_shadowColorLoc, 0.2f, 0.2f, 0.2f, 0.6f);
+        }
+
+        // Define plane (y = floorLevel, so 0x + 1y + 0z - floorLevel = 0)
+        // Plane coefficients (A, B, C, D) for Ax+By+Cz+D=0
+        vec4 planeCoeffs = vec4(0.0f, 1.0f, 0.0f, -floorLevel);
+        vec4 lightPosWorld = vec4(shadowLightPos.x, shadowLightPos.y, shadowLightPos.z, 1.0f); // w=1 for point light
+
+        float dotLightPlane = dot(lightPosWorld, planeCoeffs);
+
+        mat4 planarShadowMatrix; // Column-major order for Angel::mat4
+
+        planarShadowMatrix[0][0] = dotLightPlane - lightPosWorld.x * planeCoeffs.x;
+        planarShadowMatrix[0][1] = 0.0f           - lightPosWorld.x * planeCoeffs.y;
+        planarShadowMatrix[0][2] = 0.0f           - lightPosWorld.x * planeCoeffs.z;
+        planarShadowMatrix[0][3] = 0.0f           - lightPosWorld.x * planeCoeffs.w;
+
+        planarShadowMatrix[1][0] = 0.0f           - lightPosWorld.y * planeCoeffs.x;
+        planarShadowMatrix[1][1] = dotLightPlane - lightPosWorld.y * planeCoeffs.y;
+        planarShadowMatrix[1][2] = 0.0f           - lightPosWorld.y * planeCoeffs.z;
+        planarShadowMatrix[1][3] = 0.0f           - lightPosWorld.y * planeCoeffs.w;
+
+        planarShadowMatrix[2][0] = 0.0f           - lightPosWorld.z * planeCoeffs.x;
+        planarShadowMatrix[2][1] = 0.0f           - lightPosWorld.z * planeCoeffs.y;
+        planarShadowMatrix[2][2] = dotLightPlane - lightPosWorld.z * planeCoeffs.z;
+        planarShadowMatrix[2][3] = 0.0f           - lightPosWorld.z * planeCoeffs.w;
+
+        planarShadowMatrix[3][0] = 0.0f           - lightPosWorld.w * planeCoeffs.x;
+        planarShadowMatrix[3][1] = 0.0f           - lightPosWorld.w * planeCoeffs.y;
+        planarShadowMatrix[3][2] = 0.0f           - lightPosWorld.w * planeCoeffs.z;
+        planarShadowMatrix[3][3] = dotLightPlane - lightPosWorld.w * planeCoeffs.w;
+        
+        // The shadow matrix projects vertices in world space onto the plane.
+        // So, apply it to the sphere's world model matrix.
+        mat4 model_matrix_for_shadow = planarShadowMatrix * sphere_model_matrix;
+        mat4 final_shadow_model_view = view_matrix * model_matrix_for_shadow;
+
+        glUniformMatrix4fv(ModelView, 1, GL_TRUE, final_shadow_model_view);
+
+        // Optional: For preventing z-fighting with the floor if you had one, or self-shadowing artifacts
+        // glEnable(GL_POLYGON_OFFSET_FILL);
+        // glPolygonOffset(-1.0f, -1.0f); // Adjust factors as needed
+
+        // If shadow has alpha < 1.0, enable blending
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        // Shadows are often drawn with depth test enabled but depth writes disabled,
+        // so they don't incorrectly occlude things behind them if slightly off the plane.
+        glDepthMask(GL_FALSE);
+
+        glDrawElements(GL_TRIANGLES, indices_sphere.size(), GL_UNSIGNED_INT, 0);
+        
+        glDepthMask(GL_TRUE);  // Re-enable depth writes
+        glDisable(GL_BLEND);
+        // glDisable(GL_POLYGON_OFFSET_FILL);
+
+        if (u_isShadowPassLoc != -1) {
+            glUniform1i(u_isShadowPassLoc, 0); // Reset for next frame
+        }
+    }
+    
+    // Send lighting component enable flags (these affect the main object, not the flat shadow)
     if (enableAmbientLoc != -1) glUniform1f(enableAmbientLoc, enableAmbientVal);
     if (enableDiffuseLoc != -1) glUniform1f(enableDiffuseLoc, enableDiffuseVal);
     if (enableSpecularLoc != -1) glUniform1f(enableSpecularLoc, enableSpecularVal);
     
+    // Update light direction for shading the main object
     vec3 currentLightDirection_ViewSpace;
     mat3 view_matrix_3x3 = extract_mat3_from_mat4(view_matrix);
 
@@ -423,6 +536,7 @@ void display(void) {
 
     glFinish();
 }
+
 
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
@@ -450,13 +564,17 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
         else {
             std::cout << "No textures available to toggle." << std::endl;
         }
-        // If you want to keep the object reset functionality, assign it to a new key.
-        // Example: Reset object pose
-        // float sphereGeneratedRadius = 0.5f;
-        // vec3 pos = computeInitialPosition(sphereGeneratedRadius);
-        // bouncingObject.position = pos;
-        // bouncingObject.velocity = initialVelocity;
-        // bouncingObject.acceleration = vec3(0.0f, 0.0f, 0.0f);
+        break;
+    }
+    case GLFW_KEY_R:
+    {
+        //reset the object position
+        float sphereGeneratedRadius = 0.5f;
+        vec3 pos = computeInitialPosition(sphereGeneratedRadius);
+        bouncingObject.position = pos;
+        bouncingObject.velocity = initialVelocity;
+        bouncingObject.acceleration = vec3(0.0f, 0.0f, 0.0f);
+        std::cout << "Object position reset." << std::endl;
         break;
     }
     case GLFW_KEY_O:
@@ -527,12 +645,15 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
             updateProjection();
             break;
         }
-    case GLFW_KEY_T: // This was already correctly added by you
+    case GLFW_KEY_T:
     {
-        currentDisplayMode = static_cast<DisplayMode>((static_cast<int>(currentDisplayMode) + 1) % 3);
+        currentDisplayMode = static_cast<DisplayMode>((static_cast<int>(currentDisplayMode) + 1) % 4);
         switch (currentDisplayMode) {
             case MODE_SHADING:
                 std::cout << "Display Mode: Shading" << std::endl;
+                break;
+            case MODE_SHADING_WITH_SHADOW:
+                std::cout << "Display Mode: Shading with Shadow" << std::endl;
                 break;
             case MODE_WIREFRAME:
                 std::cout << "Display Mode: Wireframe" << std::endl;
@@ -554,7 +675,7 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
                   << "T -- Toggle Display Mode (Shading/Wireframe/Texture)\n"
                   << "Z -- Zoom In\n"
                   << "W -- Zoom Out\n"
-                  //<< "Mouse left click -- Change the drawing mode (Fill & Line) (Now handled by 'T')\n"
+                  << "R -- Reset the object position\n"
                   << "Q / ESC -- Quit\n" << std::endl;
         break;
     }
