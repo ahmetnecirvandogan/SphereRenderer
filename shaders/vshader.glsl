@@ -2,6 +2,7 @@
 layout (location = 0) in vec4 vPosition;
 layout (location = 1) in vec4 vColor;
 layout (location = 2) in vec3 vNormal;
+layout (location = 3) in vec2 aTexCoord;
 
 uniform mat4 ModelView;
 uniform mat4 Projection;
@@ -31,6 +32,7 @@ out vec4 vs_GouraudColor; // For Gouraud result
 out vec3 vs_ViewPos;      // For Phong
 out vec3 vs_ViewNormal;   // For Phong
 out vec4 vs_VertexColor;  // For Phong (and Gouraud base)
+out vec2 vs_TexCoord;
 
 void main()
 {
@@ -39,6 +41,8 @@ void main()
     vs_ViewPos = P_view_h.xyz;
     vs_ViewNormal = normalize(mat3(ModelView) * vNormal);
     vs_VertexColor = vColor;
+    
+    vs_TexCoord = aTexCoord;
 
     if (shadingMode == 0) { // Gouraud Shading Path
         vec3 N = vs_ViewNormal;
