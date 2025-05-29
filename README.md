@@ -1,47 +1,89 @@
 # 🌐 Sphere Renderer
 
-**Explore the world through perfect spheres! This OpenGL application brings shading and texture mapping to life.**
+## Project Overview
 
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT) ![Sphere Renderer Demo](path/to/your/cool_sphere_render.gif) ## ✨ Dive into Illuminated Roundness!
+This project extends a basic OpenGL application to incorporate advanced 3D rendering techniques, including lighting, shading, material properties, and texture mapping. The central scene features a sphere object that exhibits physics-based bouncing behavior. The implementation uses modern OpenGL (version 3.3+) with GLSL shaders for per-pixel and per-vertex lighting, and texture application.
 
-This OpenGL program renders a sphere with advanced shading and texture mapping capabilities. Leveraging vertex and fragment shaders (OpenGL 3.1+), it allows you to:
+## Features Implemented
 
-* **Experience Dynamic Shading:** Toggle between smooth **Gouraud** and per-pixel **Phong** shading (using the `S` key).
-* **Master the Modified-Phong Model:** Observe realistic lighting with a single directional light source.
-* **Control Light Components:** Individually turn **specular**, **diffuse**, and **ambient** lighting on or off (using the `O` key).
-* **Choose Light Behavior:** Keep the light source fixed or have it move with the sphere (toggle with the `L` key).
-* **Material Choices:** Switch between **plastic** and **metallic** material properties to see how light interacts differently (using the `M` key).
-* **Navigate the Scene:** Zoom in and out to examine details (using the `Z` and `W` keys).
-* **Optimize Rendering:** Benefit from enabled **depth testing** and **culling** of back-facing triangles for efficient rendering.
-* **Texture Variety:** Toggle between mapping the **earth.ppm** and **basketball.ppm** textures onto the sphere (using the `I` key).
-* **Spherical Parametrization:** Witness seamless texture application using the sphere's natural parametrization.
-* **Texture Quality:** Explore optimized texture filtering through `glTexParameter` and **mipmapping**.
-* **Multiple Display Modes:** Switch between **Wireframe**, **Shading**, and **Texture** display modes (using the `T` key), with **Shading** as the initial default.
-* **Informative Help:** Access a command-line help message explaining all keyboard controls (using the `H` key).
+The application demonstrates a variety of rendering techniques and interactive controls:
 
-## 🛠️ Getting Started - Prepare for Orbital Rendering!
+* **Core Graphics & Object:**
+    * Rendering of a 3D sphere with perspective projection.
+    * Physics simulation for the sphere (gravity, bouncing, air resistance).
+* **Lighting & Shading:**
+    * Single directional light source.
+    * Switchable shading models: Gouraud (per-vertex) and Phong (per-fragment).
+    * Modified Phong illumination model with toggleable ambient, diffuse, and specular components.
+    * Light source position can be fixed in world space or move relative to the object.
+    * Depth testing and back-face culling enabled.
+* **Materials:**
+    * Two distinct material types (e.g., "plastic" and "metallic") affecting specular highlights and shininess, toggleable by the user.
+* **Texture Mapping:**
+    * Custom PPM image loader for P3 format 2D textures (`earth.ppm`, `basketball.ppm`).
+    * Spherical texture mapping for 2D textures with parametrically generated coordinates.
+    * **Bonus Feature: 1D Texture Mapping:**
+        * A synthetic 1D striped texture is procedurally generated.
+        * This 1D texture is mapped to the sphere based on vertex distance from a defined world-space plane.
+* **Display Modes:**
+    * User-selectable display modes:
+        * Shading (Phong/Gouraud)
+        * Shading with planar projection shadow (Bonus Feature)
+        * Wireframe
+        * Texture Mapping (combines lighting with 1D or 2D textures)
+* **User Interface & Controls:**
+    * Interactive keyboard controls for toggling features, display modes, camera zoom, and object reset.
+    * On-screen help (printed to console) detailing all controls.
 
-### Prerequisites
+## Requirements & Dependencies
 
-Ensure you have a development environment capable of compiling and running OpenGL 3.1+ applications. You will need:
+* C++ Compiler (supporting C++11 or later)
+* OpenGL 3.3+ capable graphics card and drivers
+* GLEW (The OpenGL Extension Wrangler Library)
+* GLFW (for windowing and input)
+* Provided "Angel" utility code (e.g., `mat.h` for vector/matrix operations, `InitShader.cpp` for shader loading)
 
-* A C/C++ compiler (e.g., g++, clang, Visual Studio).
-* The necessary OpenGL libraries and headers installed on your system.
-* The provided `mat.h` and `InitShaders.cpp` files (as per the assignment requirements).
+## Compilation and Execution (General Guidance)
 
-### Installation
-
-1.  Clone the repository (if you're using version control):
+1.  **Ensure Dependencies are Met:** Make sure GLEW and GLFW libraries and headers are installed and accessible to your compiler/linker. The Angel utilities (`mat.h`, `vec.h`, `CheckError.h`, `InitShader.cpp`) should be part of the project structure.
+2.  **Place Texture Files:** Ensure `earth.ppm` and `basketball.ppm` are in the correct runtime directory accessible by the executable.
+3.  **Compile:** Use a C++ compiler (like g++ or Clang) to compile all `.cpp` source files (`main.cpp`, `PhysicsObject.cpp`, `Material.cpp`, `ppm_loader.cpp`, `Light.cpp`, `InitShader.cpp`) and link against OpenGL, GLEW, and GLFW libraries.
+    * Example (macOS with Homebrew, may vary):
+        ```bash
+        g++ -std=c++11 -o sphere_renderer src/*.cpp src/Glad/src/glad.c -Iinclude -Isrc/Glad/include -L/usr/local/lib -lglfw -framework OpenGL -framework Cocoa -framework IOKit -framework CoreVideo
+        ```
+    * (Adjust include paths `-I`, library paths `-L`, and linked libraries `-l` based on your system and how you've installed the dependencies.)
+4.  **Run:** Execute the compiled program.
     ```bash
-    git clone [https://github.com/yourusername/yourrepo.git](https://github.com/yourusername/yourrepo.git)
-    cd yourrepo
+    ./sphere_renderer
     ```
-2.  Place the provided `mat.h` and `InitShaders.cpp` files in your project directory.
-3.  Also, ensure the `earth.ppm` and `basketball.ppm` files are in a location accessible to your program (you might need to create a `textures` subdirectory or similar).
 
-### Compilation
+## Keyboard Controls
 
-Use the provided `InitShaders.cpp` and `mat.h` along with your main source files to compile the program. Here's a general example using g++:
+* **H**: Display help (list of controls) in the console.
+* **Q / ESC**: Quit the application.
+* **R**: Reset the sphere's position and velocity.
+* **S**: Toggle shading mode (Phong / Gouraud).
+* **O**: Cycle through toggling Ambient, Diffuse, and Specular light components.
+* **L**: Toggle light source position (fixed in world / moves with object).
+* **M**: Toggle material properties (Plastic / Metallic).
+* **Z**: Zoom In.
+* **W**: Zoom Out.
+* **T**: Cycle through display modes (Shading, Shading + Shadow, Wireframe, Texture).
+* **I**: Cycle through active textures (Earth 2D, Basketball 2D, Synthetic 1D) when in Texture display mode.
 
-```bash
-g++ -o sphere_renderer main.cpp InitShaders.cpp -lGL -lGLU -lglut # Adjust linker flags based on your system
+## Code Structure
+
+* `main.cpp`: Core application logic, OpenGL setup, rendering loop, event handling.
+* `PhysicsObject.cpp/.h`: Defines the sphere's physics and behavior.
+* `Material.cpp/.h`: Manages material properties for lighting.
+* `ppm_loader.cpp/.h`: Implements loading of PPM image files for 2D textures.
+* `light.cpp/.h`: Defines a `Light` class structure (Note: directional light parameters are currently set directly as uniforms in `main.cpp`).
+* `vshader.glsl`: Vertex shader responsible for vertex transformations, normal transformations, Gouraud shading, and 1D/2D texture coordinate processing.
+* `fshader.glsl`: Fragment shader responsible for Phong shading, texture sampling (1D and 2D), combining textures with lighting, and shadow rendering.
+* `include/Angel.h` (and related files): Provided library for vector/matrix math and shader initialization.
+
+## Author
+
+AHMET NEÇİRVAN DOĞAN
+andogan22@ku.edu.tr
